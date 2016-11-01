@@ -1,0 +1,6 @@
+[package]
+name = "sequence-trie"
+version = "0.1.0"
+authors = ["Ravi Shankar <wafflespeanut@gmail.com>"]
+
+[dependencies]
