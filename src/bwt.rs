@@ -66,3 +66,49 @@ pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
     output.pop();
     output
 }
+
+pub struct FMIndex {
+    data: Vec<u8>,
+    occ_map: HashMap<u8, usize>,
+}
+
+impl FMIndex {
+    pub fn new(data: Vec<u8>) -> FMIndex {
+        let bwt_data = bwt(data);
+        FMIndex {
+            occ_map: occurrence_index(&bwt_data),
+            data: bwt_data,
+        }
+    }
+
+    fn nearest_lf(&self, idx: usize, ch: u8) -> usize {
+        match self.occ_map.get(&ch) {
+            Some(occ) => occ + self.data[0..idx].iter().filter(|&i| *i == ch).count(),
+            None => 0,
+        }
+    }
+
+    // FIXME: We need "checkpointed" index!
+    pub fn search(&mut self, query: &str) -> Vec<usize> {
+        let (mut top, mut bottom) = (0, self.data.len());
+        for ch in query.as_bytes().iter().rev() {
+            top = self.nearest_lf(top, *ch);
+            bottom = self.nearest_lf(bottom, *ch);
+        }
+
+        let mut results = vec![];
+
+        for idx in top..bottom {
+            let mut pos = 0;
+            let mut i = idx;
+            while self.data[i] != 0 {
+                pos += 1;
+                i = self.nearest_lf(i, self.data[i]);
+            }
+
+            results.push(pos);
+        }
+
+        return results
+    }
+}
