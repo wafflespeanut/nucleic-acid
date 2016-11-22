@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 // FIXME: Try the efficient algorithm (takes only O(n) time with additional O(n) space)
 // https://de.wikipedia.org/wiki/Suffix-Array-Induced-Sorting
@@ -70,70 +70,12 @@ pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
 }
 
 #[derive(Clone, Debug)]
-pub struct ByteFrequency {
-    pub data: Vec<u8>,
-    frequency: Vec<usize>,
-    distribution: HashMap<u8, u8>,
-}
-
-impl ByteFrequency {
-    pub fn new(data: Vec<u8>) -> ByteFrequency {
-        let mut set = HashSet::new();
-        for ch in &data {
-            set.insert(*ch);
-        }
-
-        ByteFrequency::new_with_distribution(data, set.iter())
-    }
-
-    pub fn new_with_distribution<'a, I>(data: Vec<u8>, distribution: I) -> ByteFrequency
-        where I: Iterator<Item=&'a u8>
-    {
-        let mut chars = distribution.filter(|&i| *i != 0).collect::<Vec<_>>();
-        let mut map = HashMap::with_capacity(chars.len());
-        let mut vec = vec![0; data.len() + chars.len() - data.len() % chars.len()];
-        chars.sort();
-
-        for (i, ch) in data.iter().enumerate() {
-            {
-                let mut count = map.entry(*ch).or_insert(0);
-                *count += 1;
-            }
-
-            if i % chars.len() == 0 {
-                for (j, c) in chars.iter().enumerate() {
-                    vec[i + j] = *map.get(c).unwrap_or(&0);
-                }
-            }
-        }
-
-        ByteFrequency {
-            data: data,
-            distribution: chars.into_iter().enumerate().map(|(i, ch)| (*ch, i as u8)).collect(),
-            frequency: vec,
-        }
-    }
-
-    pub fn get_distribution(&self, idx: usize, ch: u8) -> usize {
-        let pos = idx % self.distribution.len();
-        let char_idx = match self.distribution.get(&ch) {
-            Some(i) => *i as usize,
-            None => return 0,
-        };
-
-        let mut count = self.frequency[idx - pos + char_idx];
-        if pos != 0 {
-            count += self.data[(idx.checked_sub(pos).unwrap_or(0))..idx].iter().filter(|&c| *c == ch).count();
-        }
-
-        count
-    }
-}
-
-#[derive(Clone, Debug)]
 pub struct FMIndex {
+    // BW-transformed data
+    data: Vec<u8>,
     // forward frequency of each character in the BWT data
-    cache: ByteFrequency,
+    // (even the (big-ass) human genome doesn't exceed u32::MAX, so it's good for us)
+    cache: Vec<u32>,
     // character frequencies
     occ_map: HashMap<u8, usize>,
     // LF-mapping for backward search
@@ -142,10 +84,14 @@ pub struct FMIndex {
 
 impl FMIndex {
     pub fn new(data: Vec<u8>) -> FMIndex {
+        let mut idx = 0;
         let mut map = HashMap::new();
+        let mut count = vec![0; data.len() + 1];
         let bwt_data = bwt(data, |i| {
             let mut c = map.entry(i).or_insert(0);
             *c += 1;
+            count[idx] = *c as u32;
+            idx += 1;
         });
 
         let occ_map = occurrence_index(map);
@@ -158,7 +104,8 @@ impl FMIndex {
         }
 
         FMIndex {
-            cache: ByteFrequency::new_with_distribution(bwt_data, occ_map.keys().into_iter()),
+            data: bwt_data,
+            cache: count,
             occ_map: occ_map,
             lf_vec: lf_vec,
         }
@@ -167,7 +114,10 @@ impl FMIndex {
     fn nearest(&self, idx: usize, ch: u8) -> usize {
         match self.occ_map.get(&ch) {
             Some(occ) => {
-                occ + self.cache.get_distribution(idx, ch)
+                occ + (0..idx).rev()
+                              .find(|&i| self.data[i] == ch)
+                              .map(|i| self.cache[i] as usize)
+                              .unwrap_or(0)
             },
             None => 0,
         }
@@ -175,21 +125,24 @@ impl FMIndex {
 
     pub fn search(&self, query: &str) -> Option<usize> {
         let mut top = 0;
-        let mut bottom = self.cache.data.len();
+        let mut bottom = self.data.len();
         for ch in query.as_bytes().iter().rev() {
             top = self.nearest(top, *ch);
             bottom = self.nearest(bottom, *ch);
         }
 
         for idx in top..bottom {
-            let mut i = self.nearest(idx, self.cache.data[idx]);
+            let mut i = self.nearest(idx, self.data[idx]);
             let mut pos = 1;
-            while self.cache.data[i] != 0 {
+
+            // Basically, we're just doing the inverse BWT
+            // FIXME: Do we have to reconstruct the entire prefix?
+            while self.data[i] != 0 {
                 pos += 1;
                 i = self.lf_vec[i] as usize;
             }
 
-            return Some(pos % self.cache.data.len())      // break on first find
+            return Some(pos % self.data.len())      // break on first find
         }
 
         None
