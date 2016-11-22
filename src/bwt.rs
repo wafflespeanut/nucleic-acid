@@ -24,7 +24,7 @@ pub fn bwt<F: FnMut(u8)>(mut input: Vec<u8>, mut f: F) -> Vec<u8> {
     rots
 }
 
-pub fn occurrence_index(map: HashMap<u8, usize>) -> HashMap<u8, usize> {
+fn occurrence_index(map: HashMap<u8, usize>) -> HashMap<u8, usize> {
     // sort the bytes and locate the index of their first occurrences
     let mut chars = map.keys().collect::<Vec<_>>();
     chars.sort();
@@ -69,10 +69,16 @@ pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
     output
 }
 
+#[derive(Clone, Debug)]
 pub struct FMIndex {
+    /// BW-transformed data
     data: Vec<u8>,
-    count_cache: Vec<usize>,    // remember the occurrence of each char (caching)
+    // forward frequency of each character in the BWT data
+    count_cache: Vec<u32>,
+    // character frequencies
     occ_map: HashMap<u8, usize>,
+    // LF-mapping for backward search
+    lf_vec: Vec<u32>,
 }
 
 impl FMIndex {
@@ -83,14 +89,24 @@ impl FMIndex {
         let bwt_data = bwt(data, |i| {
             let mut c = map.entry(i).or_insert(0);
             *c += 1;
-            count[idx] = *c;
+            count[idx] = *c as u32;
             idx += 1;
         });
 
+        let occ_map = occurrence_index(map);
+        let mut lf_occ_map = occ_map.clone();
+        let mut lf_vec = vec![0; bwt_data.len()];
+        for (i, c) in bwt_data.iter().enumerate() {
+            let mut val = lf_occ_map.get_mut(&c).unwrap();
+            lf_vec[i] = *val as u32;
+            *val += 1;
+        }
+
         FMIndex {
-            occ_map: occurrence_index(map),
+            occ_map: occ_map,
             count_cache: count,
             data: bwt_data,
+            lf_vec: lf_vec,
         }
     }
 
@@ -99,30 +115,30 @@ impl FMIndex {
             Some(occ) => {
                 occ + (0..idx).rev()
                               .find(|&i| self.data[i] == ch)
-                              .map(|i| self.count_cache[i])
+                              .map(|i| self.count_cache[i] as usize)
                               .unwrap_or(0)
             },
             None => 0,
         }
     }
 
-    // FIXME: We need "checkpointed" index!
-    pub fn search(&mut self, query: &str) -> Option<usize> {
-        let (mut top, mut bottom) = (0, self.data.len());
+    pub fn search(&self, query: &str) -> Option<usize> {
+        let mut top = 0;
+        let mut bottom = self.data.len();
         for ch in query.as_bytes().iter().rev() {
             top = self.nearest(top, *ch);
             bottom = self.nearest(bottom, *ch);
         }
 
         for idx in top..bottom {
-            let mut pos = 0;
-            let mut i = idx;
+            let mut i = self.nearest(idx, self.data[idx]);
+            let mut pos = 1;
             while self.data[i] != 0 {
                 pos += 1;
-                i = self.nearest(i, self.data[i]);
+                i = self.lf_vec[i] as usize;
             }
 
-            return Some(pos)    // break on first find
+            return Some(pos % self.data.len())      // break on first find
         }
 
         None
