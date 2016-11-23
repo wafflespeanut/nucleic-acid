@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+// Generate the BWT of input data (calls the given function with the BWT data as it's generated)
 // FIXME: Try the efficient algorithm (takes only O(n) time with additional O(n) space)
 // https://de.wikipedia.org/wiki/Suffix-Array-Induced-Sorting
 pub fn bwt<F: FnMut(u8)>(mut input: Vec<u8>, mut f: F) -> Vec<u8> {
@@ -24,6 +25,8 @@ pub fn bwt<F: FnMut(u8)>(mut input: Vec<u8>, mut f: F) -> Vec<u8> {
     rots
 }
 
+// Takes a frequency map of bytes and generates the index of first occurrence
+// of each byte in their sorted form
 fn occurrence_index(map: HashMap<u8, usize>) -> HashMap<u8, usize> {
     // sort the bytes and locate the index of their first occurrences
     let mut chars = map.keys().collect::<Vec<_>>();
@@ -39,6 +42,7 @@ fn occurrence_index(map: HashMap<u8, usize>) -> HashMap<u8, usize> {
     occ_map
 }
 
+// Invert the BWT data (generate the original data)
 pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
     // get the byte distribution
     let mut map = HashMap::new();
@@ -78,8 +82,8 @@ pub struct FMIndex {
     cache: Vec<u32>,
     // character frequencies
     occ_map: HashMap<u8, usize>,
-    // LF-mapping for backward search
-    lf_vec: Vec<u32>,
+    // LF-mapping for backward search (FIXME: could be seeked using a file)
+    lf_vec: Vec<usize>,
 }
 
 impl FMIndex {
@@ -87,6 +91,9 @@ impl FMIndex {
         let mut idx = 0;
         let mut map = HashMap::new();
         let mut count = vec![0; data.len() + 1];
+        let mut lf_vec = vec![0; data.len() + 1];
+
+        // generate the frequency map and forward frequency vector as we transform the data
         let bwt_data = bwt(data, |i| {
             let mut c = map.entry(i).or_insert(0);
             *c += 1;
@@ -96,11 +103,23 @@ impl FMIndex {
 
         let occ_map = occurrence_index(map);
         let mut lf_occ_map = occ_map.clone();
-        let mut lf_vec = vec![0; bwt_data.len()];
+        // generate the LF vector (just like inverting the BWT)
         for (i, c) in bwt_data.iter().enumerate() {
             let mut val = lf_occ_map.get_mut(&c).unwrap();
-            lf_vec[i] = *val as u32;
+            lf_vec[i] = *val;
             *val += 1;
+        }
+
+        let mut i = 0;
+        let mut counter = bwt_data.len();
+        // Only difference is that we replace the LF indices with the lengths of prefix
+        // from a particular position (in other words, the number of times
+        // it would take us to get to the start of string).
+        while bwt_data[i] != 0 {
+            let next = lf_vec[i];
+            lf_vec[i] = counter;
+            i = next;
+            counter -= 1;
         }
 
         FMIndex {
@@ -111,6 +130,7 @@ impl FMIndex {
         }
     }
 
+    // Get the index of the nearest occurrence of a character in the BWT data
     fn nearest(&self, idx: usize, ch: u8) -> usize {
         match self.occ_map.get(&ch) {
             Some(occ) => {
@@ -123,7 +143,8 @@ impl FMIndex {
         }
     }
 
-    pub fn search(&self, query: &str) -> Option<usize> {
+    // Find the positions of occurrences of sub-string in the original data.
+    pub fn search(&self, query: &str) -> Vec<usize> {
         let mut top = 0;
         let mut bottom = self.data.len();
         for ch in query.as_bytes().iter().rev() {
@@ -131,20 +152,11 @@ impl FMIndex {
             bottom = self.nearest(bottom, *ch);
         }
 
-        for idx in top..bottom {
-            let mut i = self.nearest(idx, self.data[idx]);
-            let mut pos = 1;
-
-            // Basically, we're just doing the inverse BWT
-            // FIXME: Do we have to reconstruct the entire prefix?
-            while self.data[i] != 0 {
-                pos += 1;
-                i = self.lf_vec[i] as usize;
-            }
-
-            return Some(pos % self.data.len())      // break on first find
-        }
-
-        None
+        (top..bottom).map(|idx| {
+            let i = self.nearest(idx, self.data[idx]);
+            // wrap around on overflow, which usually occurs only for the
+            // last index of LF vector (or the first index of original string)
+            self.lf_vec[i] % (self.data.len() - 1)
+        }).collect()
     }
 }
