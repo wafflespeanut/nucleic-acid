@@ -13,7 +13,7 @@ enum SuffixType {
 
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-pub fn suffix_array(input: Vec<usize>) -> Vec<usize> {
+pub fn suffix_array(input: &[usize]) -> Vec<usize> {
     let mut type_map = vec![SuffixType::Small; input.len() + 1];
     let mut bucket_sizes = HashMap::new();      // byte frequency
 
@@ -172,7 +172,7 @@ pub fn suffix_array(input: Vec<usize>) -> Vec<usize> {
 
             sum_sa
         } else {
-            suffix_array(summary_index.iter().map(|i| lms_bytes[*i]).collect::<Vec<_>>())
+            suffix_array(&summary_index.iter().map(|i| lms_bytes[*i]).collect::<Vec<_>>())
         };
 
         let mut suffix_idx = vec![MARKER; input.len() + 1];

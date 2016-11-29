@@ -1,28 +1,25 @@
 use std::collections::HashMap;
 
-// Generate the BWT of input data (calls the given function with the BWT data as it's generated)
-// FIXME: Try the efficient algorithm (takes only O(n) time with additional O(n) space)
-// https://de.wikipedia.org/wiki/Suffix-Array-Induced-Sorting
-pub fn bwt<F: FnMut(u8)>(mut input: Vec<u8>, mut f: F) -> Vec<u8> {
-    input.push(0);
+use sa::suffix_array;
 
+// Generate the BWT of input data (calls the given function with the BWT data as it's generated)
+pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
     // get the sorted suffix array
-    let mut rotations = (0..input.len()).map(|i| &input[i..]).collect::<Vec<_>>();
-    rotations.sort();
-    let mut rots = vec![0; input.len()];
+    let sa = suffix_array(&input.iter().map(|i| *i as usize).collect::<Vec<_>>());
+    let mut bw = vec![0; sa.len()];
 
     // BWT[i] = S[SA[i] - 1]
-    for i in 0..input.len() {
-        if rotations[i].len() == input.len() {
-            rots[i] = 0;
+    for i in 0..bw.len() {
+        if sa[i] == 0 {
+            bw[i] = 0;
         } else {
-            rots[i] = input[input.len() - rotations[i].len() - 1];
+            bw[i] = input[sa[i] - 1];
         }
 
-        f(rots[i]);     // call the function with the final value
+        f(bw[i]);     // call the function with the final value
     }
 
-    rots
+    bw
 }
 
 // Takes a frequency map of bytes and generates the index of first occurrence
