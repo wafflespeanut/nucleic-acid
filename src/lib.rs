@@ -1,3 +1,5 @@
+extern crate fillings;
+
 pub mod bwt;
 pub mod sa;
 pub mod trie;
