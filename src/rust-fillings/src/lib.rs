@@ -1,6 +1,8 @@
+use std::fmt;
+use std::ops::Range;
 use std::usize;
 
-#[derive(Eq, PartialEq, Clone, Hash)]
+#[derive(Clone, Hash)]
 pub struct BitsVec {
     inner: Vec<usize>,
     units: usize,
@@ -12,10 +14,8 @@ pub struct BitsVec {
 impl BitsVec {
     pub fn new(bits: usize) -> BitsVec {
         let max = usize::MAX.count_ones() as usize;
-        if bits > max {
-            // We can store more bits, but then we might need BigInt to get them out!
-            panic!("cannot hold more than {} bits at a time", max);
-        }
+        // We can store more bits, but then we might need BigInt to get them out!
+        assert!(bits < max, "cannot hold more than {} bits at a time", max - 1);
 
         BitsVec {
             inner: vec![0],
@@ -82,4 +82,82 @@ impl BitsVec {
     pub fn inner_len(&self) -> usize {
         self.inner.len()
     }
+
+    pub fn iter(&self) -> Iter {
+        Iter { vec: self, range: 0..self.units }
+    }
+
+    pub fn into_iter(self) -> IntoIter {
+        IntoIter { range: 0..self.units, vec: self }
+    }
 }
+
+impl fmt::Debug for BitsVec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+pub struct Iter<'a> {
+    vec: &'a BitsVec,
+    range: Range<usize>,
+}
+
+impl<'a> IntoIterator for &'a BitsVec {
+    type Item = usize;
+    type IntoIter = Iter<'a>;
+
+    fn into_iter(self) -> Iter<'a> {
+        self.iter()
+    }
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        self.range.next().and_then(|i| self.vec.get(i))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.range.size_hint()
+    }
+}
+
+impl<'a> DoubleEndedIterator for Iter<'a> {
+    fn next_back(&mut self) -> Option<usize> {
+        self.range.next_back().and_then(|i| self.vec.get(i))
+    }
+}
+
+impl<'a> ExactSizeIterator for Iter<'a> {}
+
+pub struct IntoIter {
+    vec: BitsVec,
+    range: Range<usize>,
+}
+
+impl IntoIterator for BitsVec {
+    type Item = usize;
+    type IntoIter = IntoIter;
+
+    fn into_iter(self) -> IntoIter {
+        self.into_iter()
+    }
+}
+
+impl Iterator for IntoIter {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        self.range.next().and_then(|i| self.vec.get(i))
+    }
+}
+
+impl DoubleEndedIterator for IntoIter {
+    fn next_back(&mut self) -> Option<usize> {
+        self.range.next_back().and_then(|i| self.vec.get(i))
+    }
+}
+
+impl ExactSizeIterator for IntoIter {}
