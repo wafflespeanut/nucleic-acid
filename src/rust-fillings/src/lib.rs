@@ -61,17 +61,45 @@ impl BitsVec {
 
         let idx = i * self.bits / self.max_bits;
         let bits = (i * self.bits) % self.max_bits;
+        let diff = self.max_bits - bits;
         let mut val = self.inner[idx];
         if bits != 0 {
-            val &= (1 << (self.max_bits - bits)) - 1;
+            val &= (1 << diff) - 1;
         }
 
-        let diff = self.max_bits - bits;
         if diff >= self.bits {
             Some(val >> (diff - self.bits))
         } else {
             let shift = self.bits - diff;
             Some((val << shift) | (self.inner[idx + 1] >> (self.max_bits - shift)))
+        }
+    }
+
+    pub fn set(&mut self, i: usize, value: usize) {
+        assert!(i < self.units, "index out of bounds ({} >= {})", i, self.units);
+        assert!(value >> self.bits == 0,
+                "input size is more than allowed size ({} >= {})", value, 2usize.pow(self.bits as u32));
+
+        let idx = i * self.bits / self.max_bits;
+        let bits = (i * self.bits) % self.max_bits;
+        let diff = self.max_bits - bits;
+        let mut val = self.inner[idx];
+
+        if diff >= self.bits {
+            let shift = diff - self.bits;
+            let last = val & ((1 << shift) - 1);
+            let mask = if bits == 0 { 0 } else { ((1 << bits) - 1) << diff };   // prevent overflow
+            val &= mask;
+            val |= value << shift;
+            self.inner[idx] = val | last;
+        } else {
+            let shift = self.bits - diff;
+            self.inner[idx] >>= diff;
+            self.inner[idx] <<= diff;
+            self.inner[idx] |= value >> shift;
+            let last = value & ((1 << shift) - 1);
+            self.inner[idx + 1] &= (1 << (self.max_bits - shift)) - 1;
+            self.inner[idx + 1] |= last << (self.max_bits - shift);
         }
     }
 
