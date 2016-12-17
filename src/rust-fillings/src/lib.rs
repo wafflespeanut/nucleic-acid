@@ -1,18 +1,64 @@
 use std::fmt;
+use std::marker::PhantomData;
 use std::ops::Range;
 use std::usize;
 
+pub trait ReprUsize {
+    fn from_usize(usize) -> Self;
+    fn into_usize(self) -> usize;
+}
+
+impl ReprUsize for bool {
+    fn from_usize(i: usize) -> bool {
+        match i {
+            0 => false,
+            1 => true,
+            _ => unreachable!(),
+        }
+    }
+
+    fn into_usize(self) -> usize { self as usize }
+}
+
+impl ReprUsize for char {
+    fn from_usize(i: usize) -> char { i as u8 as char }
+    fn into_usize(self) -> usize { self as u8 as usize }
+}
+
+macro_rules! impl_predefined_type {
+    ($ty: ty) => {
+        impl ReprUsize for $ty {
+            fn from_usize(i: usize) -> $ty { i as $ty }
+            fn into_usize(self) -> usize { self as usize }
+        }
+    };
+}
+
+impl_predefined_type!(u8);
+impl_predefined_type!(u16);
+impl_predefined_type!(u32);
+impl_predefined_type!(u64);
+impl_predefined_type!(usize);
+impl_predefined_type!(i8);
+impl_predefined_type!(i16);
+impl_predefined_type!(i32);
+impl_predefined_type!(i64);
+impl_predefined_type!(isize);
+impl_predefined_type!(f32);
+impl_predefined_type!(f64);
+
 #[derive(Clone, Hash)]
-pub struct BitsVec {
+pub struct BitsVec<T: ReprUsize> {
     inner: Vec<usize>,
     units: usize,
     bits: usize,
     max_bits: usize,
     leftover: usize,
+    _marker: PhantomData<T>,
 }
 
-impl BitsVec {
-    pub fn new(bits: usize) -> BitsVec {
+impl<T: ReprUsize> BitsVec<T> {
+    pub fn new(bits: usize) -> BitsVec<T> {
         let max = usize::MAX.count_ones() as usize;
         // We can store more bits, but then we might need BigInt to get them out!
         assert!(bits < max, "cannot hold more than {} bits at a time", max - 1);
@@ -23,15 +69,17 @@ impl BitsVec {
             bits: bits,
             max_bits: max,
             leftover: max,
+            _marker: PhantomData,
         }
     }
 
-    pub fn push(&mut self, mut value: usize) {
+    pub fn push(&mut self, value: T) {
+        let mut value = value.into_usize();
         assert!(value >> self.bits == 0,
                 "input size is more than allowed size ({} >= {})", value, 2usize.pow(self.bits as u32));
 
         let mut idx = self.inner.len() - 1;
-        let shift_amount;
+        let shift;
 
         if self.leftover < self.bits {
             let left = self.bits - self.leftover;
@@ -42,19 +90,19 @@ impl BitsVec {
 
             self.inner.push(0);
             self.leftover = self.max_bits - left;
-            shift_amount = self.max_bits - left;
+            shift = self.max_bits - left;
             idx += 1;
         } else {
-            shift_amount = self.leftover - self.bits;
+            shift = self.leftover - self.bits;
             self.leftover -= self.bits;
         }
 
-        value <<= shift_amount;
+        value <<= shift;
         self.inner[idx] |= value;
         self.units += 1;
     }
 
-    pub fn get(&self, i: usize) -> Option<usize> {
+    pub fn get(&self, i: usize) -> Option<T> {
         if i >= self.units {
             return None
         }
@@ -68,14 +116,16 @@ impl BitsVec {
         }
 
         if diff >= self.bits {
-            Some(val >> (diff - self.bits))
+            Some(T::from_usize(val >> (diff - self.bits)))
         } else {
             let shift = self.bits - diff;
-            Some((val << shift) | (self.inner[idx + 1] >> (self.max_bits - shift)))
+            let out = (val << shift) | (self.inner[idx + 1] >> (self.max_bits - shift));
+            Some(T::from_usize(out))
         }
     }
 
-    pub fn set(&mut self, i: usize, value: usize) {
+    pub fn set(&mut self, i: usize, value: T) {
+        let value = value.into_usize();
         assert!(i < self.units, "index out of bounds ({} >= {})", i, self.units);
         assert!(value >> self.bits == 0,
                 "input size is more than allowed size ({} >= {})", value, 2usize.pow(self.bits as u32));
@@ -111,39 +161,39 @@ impl BitsVec {
         self.inner.len()
     }
 
-    pub fn iter(&self) -> Iter {
+    pub fn iter(&self) -> Iter<T> {
         Iter { vec: self, range: 0..self.units }
     }
 
-    pub fn into_iter(self) -> IntoIter {
+    pub fn into_iter(self) -> IntoIter<T> {
         IntoIter { range: 0..self.units, vec: self }
     }
 }
 
-impl fmt::Debug for BitsVec {
+impl<T: ReprUsize + fmt::Debug> fmt::Debug for BitsVec<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_list().entries(self.iter()).finish()
     }
 }
 
-pub struct Iter<'a> {
-    vec: &'a BitsVec,
+pub struct Iter<'a, T: ReprUsize + 'a> {
+    vec: &'a BitsVec<T>,
     range: Range<usize>,
 }
 
-impl<'a> IntoIterator for &'a BitsVec {
-    type Item = usize;
-    type IntoIter = Iter<'a>;
+impl<'a, T: ReprUsize> IntoIterator for &'a BitsVec<T> {
+    type Item = T;
+    type IntoIter = Iter<'a, T>;
 
-    fn into_iter(self) -> Iter<'a> {
+    fn into_iter(self) -> Iter<'a, T> {
         self.iter()
     }
 }
 
-impl<'a> Iterator for Iter<'a> {
-    type Item = usize;
+impl<'a, T: ReprUsize> Iterator for Iter<'a, T> {
+    type Item = T;
 
-    fn next(&mut self) -> Option<usize> {
+    fn next(&mut self) -> Option<T> {
         self.range.next().and_then(|i| self.vec.get(i))
     }
 
@@ -152,40 +202,40 @@ impl<'a> Iterator for Iter<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for Iter<'a> {
-    fn next_back(&mut self) -> Option<usize> {
+impl<'a, T: ReprUsize> DoubleEndedIterator for Iter<'a, T> {
+    fn next_back(&mut self) -> Option<T> {
         self.range.next_back().and_then(|i| self.vec.get(i))
     }
 }
 
-impl<'a> ExactSizeIterator for Iter<'a> {}
+impl<'a, T: ReprUsize> ExactSizeIterator for Iter<'a, T> {}
 
-pub struct IntoIter {
-    vec: BitsVec,
+pub struct IntoIter<T: ReprUsize> {
+    vec: BitsVec<T>,
     range: Range<usize>,
 }
 
-impl IntoIterator for BitsVec {
-    type Item = usize;
-    type IntoIter = IntoIter;
+impl<T: ReprUsize> IntoIterator for BitsVec<T> {
+    type Item = T;
+    type IntoIter = IntoIter<T>;
 
-    fn into_iter(self) -> IntoIter {
+    fn into_iter(self) -> IntoIter<T> {
         self.into_iter()
     }
 }
 
-impl Iterator for IntoIter {
-    type Item = usize;
+impl<T: ReprUsize> Iterator for IntoIter<T> {
+    type Item = T;
 
-    fn next(&mut self) -> Option<usize> {
+    fn next(&mut self) -> Option<T> {
         self.range.next().and_then(|i| self.vec.get(i))
     }
 }
 
-impl DoubleEndedIterator for IntoIter {
-    fn next_back(&mut self) -> Option<usize> {
+impl<T: ReprUsize> DoubleEndedIterator for IntoIter<T> {
+    fn next_back(&mut self) -> Option<T> {
         self.range.next_back().and_then(|i| self.vec.get(i))
     }
 }
 
-impl ExactSizeIterator for IntoIter {}
+impl<T: ReprUsize> ExactSizeIterator for IntoIter<T> {}
