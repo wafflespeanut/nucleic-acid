@@ -1,6 +1,7 @@
 use std::cmp;
 use std::fmt;
 use std::marker::PhantomData;
+use std::mem;
 use std::ops::Range;
 use std::usize;
 
@@ -164,8 +165,17 @@ impl<T: ReprUsize> BitsVec<T> {
         self.units
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.units == 0
+    }
+
     pub fn reserve(&mut self, additional: usize) {
         self.inner.reserve(additional * self.bits / self.max_bits + 1);
+    }
+
+    pub fn clear(&mut self) {
+        let bits = self.bits;
+        mem::replace(self, BitsVec::new(bits));
     }
 
     pub fn inner_len(&self) -> usize {
@@ -182,6 +192,12 @@ impl<T: ReprUsize> BitsVec<T> {
 }
 
 impl<T: ReprUsize + Clone> BitsVec<T> {
+    pub fn with_elements(bits: usize, length: usize, value: T) -> BitsVec<T> {
+        let mut vec = BitsVec::new(bits);
+        vec.extend_with_element(length, value);
+        vec
+    }
+
     pub fn extend_with_element(&mut self, length: usize, value: T) {
         assert!(length > self.len(), "final length should be greater than the initial length");
         // Three phases (somewhat inefficient, using safe code and all, but much better than `push`)
@@ -224,9 +240,25 @@ impl<T: ReprUsize + Clone> BitsVec<T> {
     }
 }
 
+impl<T: ReprUsize + PartialEq> BitsVec<T> {
+    pub fn contains(&self, element: &T) -> bool {
+        self.iter().find(|ref i| i == &element).is_some()
+    }
+}
+
 impl<T: ReprUsize + fmt::Debug> fmt::Debug for BitsVec<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+impl<T: ReprUsize> PartialEq for BitsVec<T> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.units != other.units || self.bits != other.bits {
+            return false
+        }
+
+        self.inner == other.inner
     }
 }
 
