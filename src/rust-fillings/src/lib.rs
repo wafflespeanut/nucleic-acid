@@ -63,7 +63,7 @@ impl<T: ReprUsize> BitsVec<T> {
     pub fn new(bits: usize) -> BitsVec<T> {
         let max = usize::MAX.count_ones() as usize;
         // We can store more bits, but then we might need BigInt to get them out!
-        assert!(bits < max, "cannot hold more than {} bits at a time", max - 1);
+        assert!(bits < max, "[new] cannot hold more than {} bits at a time", max - 1);
 
         BitsVec {
             inner: vec![0],
@@ -84,7 +84,7 @@ impl<T: ReprUsize> BitsVec<T> {
     pub fn push(&mut self, value: T) {
         let mut value = value.into_usize();
         assert!(value >> self.bits == 0,
-                "input size is more than allowed size ({} >= {})", value, 2usize.pow(self.bits as u32));
+                "[push] input size is more than allowed size ({} >= {})", value, 2usize.pow(self.bits as u32));
 
         let mut idx = self.inner.len() - 1;
         let shift;
@@ -110,7 +110,12 @@ impl<T: ReprUsize> BitsVec<T> {
         self.units += 1;
     }
 
-    pub fn get(&self, i: usize) -> Option<T> {
+    pub fn get(&self, i: usize) -> T {
+        assert!(i < self.units, "[get] index out of bounds ({} >= {})", i, self.units);
+        self.checked_get(i).unwrap()
+    }
+
+    pub fn checked_get(&self, i: usize) -> Option<T> {
         if i >= self.units {
             return None
         }
@@ -134,9 +139,9 @@ impl<T: ReprUsize> BitsVec<T> {
 
     pub fn set(&mut self, i: usize, value: T) {
         let value = value.into_usize();
-        assert!(i < self.units, "index out of bounds ({} >= {})", i, self.units);
+        assert!(i < self.units, "[set] index out of bounds ({} >= {})", i, self.units);
         assert!(value >> self.bits == 0,
-                "input size is more than allowed size ({} >= {})", value, 2usize.pow(self.bits as u32));
+                "[set] input size is more than allowed size ({} >= {})", value, 2usize.pow(self.bits as u32));
 
         let idx = i * self.bits / self.max_bits;
         let bits = (i * self.bits) % self.max_bits;
@@ -199,7 +204,7 @@ impl<T: ReprUsize + Clone> BitsVec<T> {
     }
 
     pub fn extend_with_element(&mut self, length: usize, value: T) {
-        assert!(length > self.len(), "final length should be greater than the initial length");
+        assert!(length > self.len(), "[extend] final length should be greater than the initial length");
         // Three phases (somewhat inefficient, using safe code and all, but much better than `push`)
         let mut remain = length - self.len();
         self.reserve(remain);
@@ -280,7 +285,7 @@ impl<'a, T: ReprUsize> Iterator for Iter<'a, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
-        self.range.next().and_then(|i| self.vec.get(i))
+        self.range.next().map(|i| self.vec.get(i))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -290,7 +295,7 @@ impl<'a, T: ReprUsize> Iterator for Iter<'a, T> {
 
 impl<'a, T: ReprUsize> DoubleEndedIterator for Iter<'a, T> {
     fn next_back(&mut self) -> Option<T> {
-        self.range.next_back().and_then(|i| self.vec.get(i))
+        self.range.next_back().map(|i| self.vec.get(i))
     }
 }
 
@@ -314,13 +319,13 @@ impl<T: ReprUsize> Iterator for IntoIter<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
-        self.range.next().and_then(|i| self.vec.get(i))
+        self.range.next().map(|i| self.vec.get(i))
     }
 }
 
 impl<T: ReprUsize> DoubleEndedIterator for IntoIter<T> {
     fn next_back(&mut self) -> Option<T> {
-        self.range.next_back().and_then(|i| self.vec.get(i))
+        self.range.next_back().map(|i| self.vec.get(i))
     }
 }
 
