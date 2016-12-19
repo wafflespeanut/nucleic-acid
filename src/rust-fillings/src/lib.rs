@@ -1,3 +1,4 @@
+use std::cmp;
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Range;
@@ -71,6 +72,12 @@ impl<T: ReprUsize> BitsVec<T> {
             leftover: max,
             _marker: PhantomData,
         }
+    }
+
+    pub fn with_capacity(bits: usize, capacity: usize) -> BitsVec<T> {
+        let mut vec = BitsVec::new(bits);
+        vec.reserve(capacity);
+        vec
     }
 
     pub fn push(&mut self, value: T) {
@@ -157,6 +164,10 @@ impl<T: ReprUsize> BitsVec<T> {
         self.units
     }
 
+    pub fn reserve(&mut self, additional: usize) {
+        self.inner.reserve(additional * self.bits / self.max_bits + 1);
+    }
+
     pub fn inner_len(&self) -> usize {
         self.inner.len()
     }
@@ -167,6 +178,49 @@ impl<T: ReprUsize> BitsVec<T> {
 
     pub fn into_iter(self) -> IntoIter<T> {
         IntoIter { range: 0..self.units, vec: self }
+    }
+}
+
+impl<T: ReprUsize + Clone> BitsVec<T> {
+    pub fn extend_with_element(&mut self, length: usize, value: T) {
+        assert!(length > self.len(), "final length should be greater than the initial length");
+        // Three phases (somewhat inefficient, using safe code and all, but much better than `push`)
+        let mut remain = length - self.len();
+        self.reserve(remain);
+
+        // 1. Slow push until we get to a common multiple of (self.bits, self.max_bits)
+        while self.leftover > 0 {
+            self.push(value.clone());
+            remain -= 1;
+            if remain == 0 {
+                return
+            }
+        }
+
+        // 2. Do the same to a new BitsVec
+        let mut temp = BitsVec::new(self.bits);
+        temp.reserve(cmp::min(remain, self.max_bits));
+        temp.push(value.clone());
+        while temp.leftover > 0 && remain > 0 {
+            temp.push(value.clone());
+        }
+
+        if remain == 0 {
+            self.units += temp.units;
+            self.inner.extend(&temp.inner);
+            return
+        }
+
+        // 3. Extend from the new BitsVec
+        while remain >= temp.units {
+            self.inner.extend(&temp.inner);
+            self.units += temp.units;
+            remain -= temp.units;
+        }
+
+        for _ in 0..remain {
+            self.push(value.clone());
+        }
     }
 }
 
