@@ -1,8 +1,7 @@
+use fillings::{BitsVec, ReprUsize};
+
 use std::collections::HashMap;
 use std::usize;
-
-// Prefer this for marking, instead of Option<usize> (as it requires additional byte of memory)
-const MARKER: usize = usize::MAX;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum SuffixType {
@@ -11,28 +10,42 @@ enum SuffixType {
     LeftMostSmall,
 }
 
+impl ReprUsize for SuffixType {
+    fn from_usize(i: usize) -> SuffixType {
+        match i {
+            0 => SuffixType::Small,
+            1 => SuffixType::Large,
+            2 => SuffixType::LeftMostSmall,
+            _ => unreachable!(),
+        }
+    }
+
+    fn into_usize(self) -> usize { self as usize }
+}
+
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-pub fn suffix_array(input: &[usize]) -> Vec<usize> {
-    let mut type_map = vec![SuffixType::Small; input.len() + 1];
-    let mut bucket_sizes = HashMap::new();      // byte frequency
+pub fn suffix_array(input: BitsVec<usize>) -> BitsVec<usize> {
+    let mut type_map = BitsVec::with_elements(2, input.len() + 1, SuffixType::Small);
+    let mut bucket_sizes = HashMap::new();      // byte frequency (FIXME: too costly! should be a vector)
 
-    type_map[input.len()] = SuffixType::LeftMostSmall;      // null byte
-    type_map[input.len() - 1] = SuffixType::Large;          // should be L-type
-    bucket_sizes.insert(input[input.len() - 1], 1);
+    type_map.set(input.len(), SuffixType::LeftMostSmall);      // null byte
+    type_map.set(input.len() - 1, SuffixType::Large);          // should be L-type
+    bucket_sizes.insert(input.get(input.len() - 1), 1);
 
-    // group the bytes into S-type or L-type (also mark LMS types)
+    // 1. Group the bytes into S-type or L-type (also mark LMS types)
     for i in (0..input.len() - 1).rev() {
-        let mut c = bucket_sizes.entry(input[i]).or_insert(0);
+        let (cur, next) = (input.get(i), input.get(i + 1));
+        let mut c = bucket_sizes.entry(cur).or_insert(0);
         *c += 1;
 
-        if input[i] > input[i + 1] ||
-           (input[i] == input[i + 1] && type_map[i + 1] == SuffixType::Large) {
-            if type_map[i + 1] == SuffixType::Small {
-                type_map[i + 1] = SuffixType::LeftMostSmall;
+        if cur > next ||
+           (cur == next && type_map.get(i + 1) == SuffixType::Large) {
+            if type_map.get(i + 1) == SuffixType::Small {
+                type_map.set(i + 1, SuffixType::LeftMostSmall);
             }
 
-            type_map[i] = SuffixType::Large;
+            type_map.set(i, SuffixType::Large);
         }
     }
 
@@ -40,90 +53,107 @@ pub fn suffix_array(input: &[usize]) -> Vec<usize> {
     let mut bytes = bucket_sizes.keys().map(|i| *i).collect::<Vec<_>>();
     bytes.sort();
 
+    // BitsVec always requires the max number of bits it should hold. Using the size of `usize`
+    // would probably render it useless (as it'd be no different from a vector). So, we get the
+    // maximum value from our collection (say, MAX), get its size (MAX::bits) and pass it to BitsVec.
+    // This way, we can reduce the memory consumed by more than half.
     let max_byte = bytes[bytes.len() - 1];
-    let mut bucket_heads = vec![0; max_byte + 1];
-    let mut bucket_tails = vec![0; max_byte + 1];
+    // We'll be adding the frequencies, so input.len() would be the worst case
+    // (i.e., same character throughout the string)
+    let bits = (input.len().next_power_of_two() - 1).count_ones() as usize;
+    let mut bucket_heads = BitsVec::with_elements(bits, max_byte + 1, 0);
+    let mut bucket_tails = BitsVec::with_elements(bits, max_byte + 1, 0);
 
-    // fill the bucket heads and tails (heads for L-types and tails for S-types)
+    // 2. Fill the bucket heads and tails (heads for L-types and tails for S-types)
     let mut j = 0;
     for i in 0..(max_byte + 1) {
-        bucket_heads[i] = idx;
+        bucket_heads.set(i, idx);
         if i == bytes[j] {
             idx += bucket_sizes.remove(&bytes[j]).unwrap();
             j += 1;
         }
 
-        bucket_tails[i] = idx - 1;
+        bucket_tails.set(i, idx - 1);
     }
 
-    let mut approx_sa = {       // build the first (approximate) SA
-        let mut vec = vec![MARKER; input.len() + 1];
+    // 3. Build the approximate SA for initial induced sorting
+    let input_max = input.len().next_power_of_two() - 1;        // marker for approx. SA
+    let input_max_bits = input_max.count_ones() as usize;
+
+    let mut approx_sa = {
+        let mut vec = BitsVec::with_elements(input_max_bits, input.len() + 1, input_max);
         let mut bucket_tails = bucket_tails.clone();
         for (i, byte) in input.iter().enumerate() {
-            if type_map[i] != SuffixType::LeftMostSmall {
+            if type_map.get(i) != SuffixType::LeftMostSmall {
                 continue        // ignore the L and S types (for now)
             }
 
-            let bucket_idx = *byte;
-            vec[bucket_tails[bucket_idx]] = i;
-            bucket_tails[bucket_idx] -= 1;
+            let bucket_idx = byte;
+            let bucket_value = bucket_tails.get(bucket_idx);
+            vec.set(bucket_value, i);
+            bucket_tails.set(bucket_idx, bucket_value - 1);
         }
 
-        vec[0] = input.len();       // null byte
+        vec.set(0, input.len());    // null byte
         vec
     };
 
-    fn induced_sort_large(input: &[usize], approx_sa: &mut [usize],
-                          mut bucket_heads: Vec<usize>, type_map: &[SuffixType]) {
+    fn induced_sort_large(input: &BitsVec<usize>, approx_sa: &mut BitsVec<usize>, marker: usize,
+                          mut bucket_heads: BitsVec<usize>, type_map: &BitsVec<SuffixType>) {
         for i in 0..approx_sa.len() {
-            if approx_sa[i] == MARKER || approx_sa[i] == 0 {
+            let value = approx_sa.get(i);
+            if value == marker || value == 0 {
                 continue
             }
 
-            let j = approx_sa[i] - 1;
-            if type_map[j] != SuffixType::Large {
+            let j = value - 1;
+            if type_map.get(j) != SuffixType::Large {
                 continue    // only the L-types
             }
 
-            let bucket_idx = input[j];
-            approx_sa[bucket_heads[bucket_idx]] = j;
-            bucket_heads[bucket_idx] += 1;
+            let bucket_idx = input.get(j);
+            let bucket_value = bucket_heads.get(bucket_idx);
+            approx_sa.set(bucket_value, j);
+            bucket_heads.set(bucket_idx, bucket_value + 1);
         }
     }
 
-    fn induced_sort_small(input: &[usize], approx_sa: &mut [usize],
-                          mut bucket_tails: Vec<usize>, type_map: &[SuffixType]) {
+    fn induced_sort_small(input: &BitsVec<usize>, approx_sa: &mut BitsVec<usize>, marker: usize,
+                          mut bucket_tails: BitsVec<usize>, type_map: &BitsVec<SuffixType>) {
         for i in (0..approx_sa.len()).rev() {
-            if approx_sa[i] == MARKER || approx_sa[i] == 0 {
+            let value = approx_sa.get(i);
+            if value == marker || value == 0 {
                 continue
             }
 
-            let j = approx_sa[i] - 1;
-            if type_map[j] == SuffixType::Large {
+            let j = value - 1;
+            if type_map.get(j) == SuffixType::Large {
                 continue    // only the S-types (and LMS-types as per our grouping)
             }
 
-            let bucket_idx = input[j];
-            approx_sa[bucket_tails[bucket_idx]] = j;
-            bucket_tails[bucket_idx] -= 1;
+            let bucket_idx = input.get(j);
+            let bucket_value = bucket_tails.get(bucket_idx);
+            approx_sa.set(bucket_value, j);
+            bucket_tails.set(bucket_idx, bucket_value - 1);
         }
     }
 
-    induced_sort_large(&input, &mut approx_sa, bucket_heads.clone(), &type_map);
-    induced_sort_small(&input, &mut approx_sa, bucket_tails.clone(), &type_map);
+    // 4. Induced sort with respect to L & S types (using the buckets)
+    induced_sort_large(&input, &mut approx_sa, input_max, bucket_heads.clone(), &type_map);
+    induced_sort_small(&input, &mut approx_sa, input_max, bucket_tails.clone(), &type_map);
 
     // Check whether the string between two LMS bytes have the same lengths and same contents
-    fn is_equal_lms(input: &[usize], type_map: &[SuffixType], j: usize, k: usize) -> bool {
+    fn is_equal_lms(input: &BitsVec<usize>, type_map: &BitsVec<SuffixType>, j: usize, k: usize) -> bool {
         if j == input.len() || k == input.len() {
             return false    // null byte
         }
 
         for i in 0..(input.len() + 1) {
-            let first_lms = type_map[i + j] == SuffixType::LeftMostSmall;
-            let second_lms = type_map[i + k] == SuffixType::LeftMostSmall;
+            let first_lms = type_map.get(i + j) == SuffixType::LeftMostSmall;
+            let second_lms = type_map.get(i + k) == SuffixType::LeftMostSmall;
             if first_lms && second_lms && i > 0 {
                 return true
-            } else if (first_lms != second_lms) || (input[i + j] != input[i + k]) {
+            } else if (first_lms != second_lms) || (input.get(i + j) != input.get(i + k)) {
                 return false
             }
         }
@@ -131,16 +161,19 @@ pub fn suffix_array(input: &[usize]) -> Vec<usize> {
         false
     }
 
+    // 5. Record the indices that share LMS substrings
     let mut byte = 0;
     let lms_bytes = {
-        let mut approx_sa = approx_sa;      // we no longer need this
-        let mut last_idx = approx_sa[0];
-        let mut lms_bytes = vec![input.len(); input.len() + 1];
-        lms_bytes[last_idx] = 0;
+        // Approx SA is no longer needed (it'll be dropped when it goes out of scope)
+        let approx_sa = approx_sa;
+        let mut last_idx = approx_sa.get(0);
+        let mut lms_bytes = BitsVec::with_elements(input_max_bits, input.len() + 1, input.len());
+        lms_bytes.set(last_idx, 0);
 
-        for count in approx_sa.drain(1..) {
-            let idx = if count == MARKER { input.len() } else { count };
-            if type_map[idx] != SuffixType::LeftMostSmall {
+        for i in 1..approx_sa.len() {
+            let count = approx_sa.get(i);
+            let idx = if count == input_max { input.len() } else { count };
+            if type_map.get(idx) != SuffixType::LeftMostSmall {
                 continue
             }
 
@@ -149,46 +182,68 @@ pub fn suffix_array(input: &[usize]) -> Vec<usize> {
             }
 
             last_idx = idx;
-            lms_bytes[idx] = byte;
+            lms_bytes.set(idx, byte);
         }
 
         lms_bytes
     };
 
-    // filter the modified bytes
-    let summary_index = lms_bytes.iter().enumerate().filter_map(|(i, b)| {
-        if *b == input.len() { None } else { Some(i) }
-    }).collect::<Vec<_>>();
+    // ... and filter the unnecessary bytes
+    let lms_max_bits = (byte.next_power_of_two() - 1).count_ones() as usize;
+    let sum_max_bits = (lms_bytes.len().next_power_of_two() - 1).count_ones() as usize;
+
+    let mut max_byte = 0;
+    let mut summary_index = BitsVec::new(sum_max_bits);
+    for (i, b) in lms_bytes.iter().enumerate() {
+        if b != input.len() {
+            summary_index.push(i);
+            if i > max_byte {
+                max_byte = i;
+            }
+        }
+    }
+
+    // 6. Build the final SA
+    let suffix_max = max_byte.next_power_of_two() - 1;
+    let bits = suffix_max.count_ones() as usize;
 
     let mut final_sa = {        // build the summary SA (using the usable bytes)
         let mut bucket_tails = bucket_tails.clone();
         let summary_sa = if byte == summary_index.len() - 1 {
-            let mut sum_sa = vec![0; summary_index.len() + 1];
-            sum_sa[0] = summary_index.len();
+            let max_bits = (summary_index.len().next_power_of_two() - 1).count_ones() as usize;
+            let mut sum_sa = BitsVec::with_elements(max_bits, summary_index.len() + 1, 0);
+            sum_sa.set(0, summary_index.len());
             for i in 0..summary_index.len() {
-                let idx = lms_bytes[summary_index[i]];
-                sum_sa[idx + 1] = i;
+                let idx = lms_bytes.get(summary_index.get(i));
+                sum_sa.set(idx + 1, i);
             }
 
-            sum_sa
+            sum_sa      // recursion begins to unwind (peek of memory consumption)
         } else {
-            suffix_array(&summary_index.iter().map(|i| lms_bytes[*i]).collect::<Vec<_>>())
+            let mut mapped = BitsVec::new(lms_max_bits);
+            for i in &summary_index {
+                mapped.push(lms_bytes.get(i));
+            }
+
+            suffix_array(mapped)
         };
 
-        let mut suffix_idx = vec![MARKER; input.len() + 1];
+        let mut suffix_idx = BitsVec::with_elements(bits, input.len() + 1, suffix_max);
         for i in (2..summary_sa.len()).rev() {
-            let idx = summary_index[summary_sa[i]];
-            let bucket_idx = input[idx];
-            suffix_idx[bucket_tails[bucket_idx]] = idx;
-            bucket_tails[bucket_idx] -= 1;
+            let idx = summary_index.get(summary_sa.get(i));
+            let bucket_idx = input.get(idx);
+            let bucket_value = bucket_tails.get(bucket_idx);
+            suffix_idx.set(bucket_value, idx);
+            bucket_tails.set(bucket_idx, bucket_value - 1);
         }
 
-        suffix_idx[0] = input.len();
+        suffix_idx.set(0, input.len());
         suffix_idx
     };
 
-    induced_sort_large(&input, &mut final_sa, bucket_heads, &type_map);
-    induced_sort_small(&input, &mut final_sa, bucket_tails, &type_map);
+    // ... and sort it one last time
+    induced_sort_large(&input, &mut final_sa, suffix_max, bucket_heads, &type_map);
+    induced_sort_small(&input, &mut final_sa, suffix_max, bucket_tails, &type_map);
 
     final_sa
 }
