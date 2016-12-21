@@ -16,7 +16,7 @@ pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
 
     // BWT[i] = S[SA[i] - 1]
     for i in 0..bw.len() {
-        let val = sa.get(i) as usize;
+        let val = sa.get(i);
         if val == 0 {
             bw[i] = 0;
         } else {
