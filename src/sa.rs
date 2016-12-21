@@ -1,6 +1,5 @@
 use fillings::{BitsVec, ReprUsize};
 
-use std::collections::HashMap;
 use std::mem;
 use std::usize;
 
@@ -79,34 +78,51 @@ fn is_equal_lms(input: &BitsVec<usize>, type_map: &BitsVec<SuffixType>, j: usize
     false
 }
 
+// Increment the counter at an index
+fn insert(vec: &mut BitsVec<usize>, idx: usize) {
+    if vec.len() <= idx {
+        vec.extend_with_element(idx + 1, 0);
+    }
+
+    let old = vec.get(idx);
+    vec.set(idx, old + 1);
+}
+
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
 pub fn suffix_array(input: BitsVec<usize>) -> BitsVec<usize> {
     let mut type_map = BitsVec::with_elements(2, input.len() + 1, SuffixType::Small);
-    let mut bucket_sizes = HashMap::new();      // byte frequency (FIXME: too costly! should be a vector)
+    // We'll be adding the frequencies, so input.len() would be the worst case
+    // (i.e., same character throughout the string)
+    let bits = (input.len().next_power_of_two() - 1).count_ones() as usize;
+    let mut bucket_sizes = BitsVec::new(bits);      // byte frequency (HashMap will be a killer in recursions)
 
     type_map.set(input.len(), SuffixType::LeftMostSmall);      // null byte
     type_map.set(input.len() - 1, SuffixType::Large);          // should be L-type
-    bucket_sizes.insert(input.get(input.len() - 1), 1);
+    let mut prev = input.get(input.len() - 1);
+    insert(&mut bucket_sizes, prev);
 
     // 1. Group the bytes into S-type or L-type (also mark LMS types)
     for i in (0..input.len() - 1).rev() {
-        let (cur, next) = (input.get(i), input.get(i + 1));
-        let mut c = bucket_sizes.entry(cur).or_insert(0);
-        *c += 1;
+        let cur = input.get(i);
+        insert(&mut bucket_sizes, cur);
 
-        if cur > next ||
-           (cur == next && type_map.get(i + 1) == SuffixType::Large) {
+        if cur > prev ||
+           (cur == prev && type_map.get(i + 1) == SuffixType::Large) {
             if type_map.get(i + 1) == SuffixType::Small {
                 type_map.set(i + 1, SuffixType::LeftMostSmall);
             }
 
             type_map.set(i, SuffixType::Large);
         }
+
+        prev = cur;
     }
 
     let mut idx = 1;
-    let mut bytes = bucket_sizes.keys().map(|i| *i).collect::<Vec<_>>();
+    let mut bytes = bucket_sizes.iter().enumerate().filter_map(|(i, c)| {
+        if c == 0 { None } else { Some(i) }
+    }).collect::<Vec<_>>();
     bytes.sort();
 
     // BitsVec always requires the max number of bits it should hold. Using the size of `usize`
@@ -114,9 +130,6 @@ pub fn suffix_array(input: BitsVec<usize>) -> BitsVec<usize> {
     // maximum value from our collection (say, MAX), get its size (MAX::bits) and pass it to BitsVec.
     // This way, we can reduce the memory consumed by more than half.
     let max_byte = bytes[bytes.len() - 1];
-    // We'll be adding the frequencies, so input.len() would be the worst case
-    // (i.e., same character throughout the string)
-    let bits = (input.len().next_power_of_two() - 1).count_ones() as usize;
     let mut bucket_heads = BitsVec::with_elements(bits, max_byte + 1, 0);
     let mut bucket_tails = BitsVec::with_elements(bits, max_byte + 1, 0);
 
@@ -125,12 +138,15 @@ pub fn suffix_array(input: BitsVec<usize>) -> BitsVec<usize> {
     for i in 0..(max_byte + 1) {
         bucket_heads.set(i, idx);
         if i == bytes[j] {
-            idx += bucket_sizes.remove(&bytes[j]).unwrap();
+            idx += bucket_sizes.get(bytes[j]);
             j += 1;
         }
 
         bucket_tails.set(i, idx - 1);
     }
+
+    drop(bytes);
+    drop(bucket_sizes);
 
     // 3. Build the approximate SA for initial induced sorting
     let input_max = input.len().next_power_of_two() - 1;        // marker for approx. SA
@@ -215,6 +231,7 @@ pub fn suffix_array(input: BitsVec<usize>) -> BitsVec<usize> {
                 sum_sa.set(idx + 1, i);
             }
 
+            drop(lms_bytes);
             sum_sa      // recursion begins to unwind (peek of memory consumption)
         } else {
             let mut mapped = BitsVec::with_capacity(lms_max_bits, summary_index.len());
@@ -222,6 +239,7 @@ pub fn suffix_array(input: BitsVec<usize>) -> BitsVec<usize> {
                 mapped.push(lms_bytes.get(i));
             }
 
+            drop(lms_bytes);
             suffix_array(mapped)
         };
 
