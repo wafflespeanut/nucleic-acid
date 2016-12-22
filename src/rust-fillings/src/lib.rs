@@ -330,3 +330,40 @@ impl<T: ReprUsize> DoubleEndedIterator for IntoIter<T> {
 }
 
 impl<T: ReprUsize> ExactSizeIterator for IntoIter<T> {}
+
+#[cfg(test)]
+mod tests {
+    use super::{BitsVec, ReprUsize};
+    use std::mem;
+
+    #[repr(usize)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    enum TestEnum {
+        Value1,
+        Value2,
+        Value3,
+        Value4,
+    }
+
+    impl ReprUsize for TestEnum {
+        fn into_usize(self) -> usize { self as usize }
+        fn from_usize(i: usize) -> Self { unsafe { mem::transmute(i) } }
+    }
+
+    #[test]
+    fn test_everything_with_enum() {
+        let mut vec = BitsVec::with_elements(4, 16, TestEnum::Value4);
+        vec.set(0, TestEnum::Value1);
+        vec.set(1, TestEnum::Value2);
+        vec.set(2, TestEnum::Value3);
+        assert_eq!(vec.len(), 16);
+        assert_eq!(vec.inner_len(), 1);
+        assert_eq!(vec.get(0), TestEnum::Value1);
+        assert_eq!(vec.get(1), TestEnum::Value2);
+        assert_eq!(vec.get(2), TestEnum::Value3);
+        vec.push(TestEnum::Value4);
+        for i in 3..vec.len() {
+            assert_eq!(vec.get(i), TestEnum::Value4);
+        }
+    }
+}
