@@ -11,27 +11,24 @@ pub trait ReprUsize {
 }
 
 impl ReprUsize for bool {
-    fn from_usize(i: usize) -> bool {
-        match i {
-            0 => false,
-            1 => true,
-            _ => unreachable!(),
-        }
-    }
-
     fn into_usize(self) -> usize { self as usize }
+    fn from_usize(i: usize) -> bool {
+        unsafe { mem::transmute(i as u8) }
+    }
 }
 
 impl ReprUsize for char {
-    fn from_usize(i: usize) -> char { i as u8 as char }
-    fn into_usize(self) -> usize { self as u8 as usize }
+    fn into_usize(self) -> usize { self as usize }
+    fn from_usize(i: usize) -> char {
+        unsafe { mem::transmute(i as u32) }
+    }
 }
 
 macro_rules! impl_predefined_type {
     ($ty: ty) => {
         impl ReprUsize for $ty {
-            fn from_usize(i: usize) -> $ty { i as $ty }
             fn into_usize(self) -> usize { self as usize }
+            fn from_usize(i: usize) -> $ty { i as $ty }
         }
     };
 }
@@ -46,8 +43,6 @@ impl_predefined_type!(i16);
 impl_predefined_type!(i32);
 impl_predefined_type!(i64);
 impl_predefined_type!(isize);
-impl_predefined_type!(f32);
-impl_predefined_type!(f64);
 
 #[derive(Clone, Hash)]
 pub struct BitsVec<T: ReprUsize> {
@@ -164,6 +159,17 @@ impl<T: ReprUsize> BitsVec<T> {
             self.inner[idx + 1] &= (1 << (self.max_bits - shift)) - 1;
             self.inner[idx + 1] |= last << (self.max_bits - shift);
         }
+    }
+
+    pub fn from_iter<I>(bits: usize, iterable: I) -> BitsVec<T>
+        where I: Iterator<Item=T>
+    {
+        let mut vec = BitsVec::new(bits);
+        for i in iterable {
+            vec.push(i);
+        }
+
+        vec
     }
 
     pub fn len(&self) -> usize {

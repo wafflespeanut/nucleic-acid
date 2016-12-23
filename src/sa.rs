@@ -12,11 +12,10 @@ enum SuffixType {
 }
 
 impl ReprUsize for SuffixType {
+    fn into_usize(self) -> usize { self as usize }
     fn from_usize(i: usize) -> SuffixType {
         unsafe { mem::transmute(i) }
     }
-
-    fn into_usize(self) -> usize { self as usize }
 }
 
 fn induced_sort_large(input: &BitsVec<usize>, approx_sa: &mut BitsVec<usize>, marker: usize,
@@ -261,4 +260,23 @@ pub fn suffix_array(input: BitsVec<usize>) -> BitsVec<usize> {
     induced_sort_small(&input, &mut final_sa, suffix_max, bucket_tails, &type_map);
 
     final_sa
+}
+
+#[cfg(test)]
+mod tests {
+    use fillings::BitsVec;
+    use super::suffix_array;
+
+    #[test]
+    fn test_suffix_array() {
+        let text = "ATCGAATCGAGAGATCATCGAATCGAGATCATCGAAATCATCGAATCGTC".to_owned();
+        let vec = BitsVec::from_iter(7, text.chars().map(|i| i as usize));
+        let sa = suffix_array(vec);
+
+        let mut rotations = (0..text.len()).map(|i| &text[i..]).collect::<Vec<_>>();
+        rotations.sort();
+
+        assert_eq!(sa.into_iter().skip(1).map(|i| &text[i..]).collect::<Vec<_>>(),
+                   rotations);
+    }
 }
