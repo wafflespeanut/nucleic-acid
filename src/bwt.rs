@@ -1,26 +1,19 @@
 use std::collections::HashMap;
 
-use fillings::BitsVec;
 use sa::suffix_array;
 
 // Generate the BWT of input data (calls the given function with the BWT data as it's generated)
 pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
     // get the sorted suffix array
-    let mut vec = BitsVec::with_capacity(7, input.len());
-    for byte in &input {
-        vec.push(*byte as usize);
-    }
-
-    let sa = suffix_array(vec);
+    let sa = suffix_array(&input.iter().map(|i| *i as usize).collect::<Vec<_>>());
     let mut bw = vec![0; sa.len()];
 
     // BWT[i] = S[SA[i] - 1]
     for i in 0..bw.len() {
-        let val = sa.get(i);
-        if val == 0 {
+        if sa[i] == 0 {
             bw[i] = 0;
         } else {
-            bw[i] = input[val - 1];
+            bw[i] = input[sa[i] - 1];
         }
 
         f(bw[i]);     // call the function with the final value
