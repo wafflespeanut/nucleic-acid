@@ -1,4 +1,5 @@
 use fillings::{BitsVec, ReprUsize};
+use num_traits::{Num, NumCast, cast};
 
 use std::mem;
 use std::usize;
@@ -21,8 +22,10 @@ impl ReprUsize for SuffixType {
     }
 }
 
-fn induced_sort_large(input: &[usize], approx_sa: &mut [usize],
-                      mut bucket_heads: BitsVec<usize>, type_map: &BitsVec<SuffixType>) {
+fn induced_sort_large<T>(input: &[T], approx_sa: &mut [usize],
+                         mut bucket_heads: BitsVec<usize>, type_map: &BitsVec<SuffixType>)
+    where T: Num + NumCast + PartialOrd + Copy
+{
     for i in 0..approx_sa.len() {
         if approx_sa[i] == MARKER || approx_sa[i] == 0 {
             continue
@@ -33,15 +36,17 @@ fn induced_sort_large(input: &[usize], approx_sa: &mut [usize],
             continue    // only the L-types
         }
 
-        let bucket_idx = input[j];
+        let bucket_idx = cast(input[j]).unwrap();
         let bucket_value = bucket_heads.get(bucket_idx);
         approx_sa[bucket_value] = j;
         bucket_heads.set(bucket_idx, bucket_value + 1);
     }
 }
 
-fn induced_sort_small(input: &[usize], approx_sa: &mut [usize],
-                      mut bucket_tails: BitsVec<usize>, type_map: &BitsVec<SuffixType>) {
+fn induced_sort_small<T>(input: &[T], approx_sa: &mut [usize],
+                         mut bucket_tails: BitsVec<usize>, type_map: &BitsVec<SuffixType>)
+    where T: Num + NumCast + PartialOrd + Copy
+{
     for i in (0..approx_sa.len()).rev() {
         if approx_sa[i] == MARKER || approx_sa[i] == 0 {
             continue
@@ -52,7 +57,7 @@ fn induced_sort_small(input: &[usize], approx_sa: &mut [usize],
             continue    // only the S-types (and LMS-types as per our grouping)
         }
 
-        let bucket_idx = input[j];
+        let bucket_idx = cast(input[j]).unwrap();
         let bucket_value = bucket_tails.get(bucket_idx);
         approx_sa[bucket_value] = j;
         bucket_tails.set(bucket_idx, bucket_value - 1);
@@ -60,7 +65,9 @@ fn induced_sort_small(input: &[usize], approx_sa: &mut [usize],
 }
 
 // Check whether the string between two LMS bytes have the same lengths and same contents
-fn is_equal_lms(input: &[usize], type_map: &BitsVec<SuffixType>, j: usize, k: usize) -> bool {
+fn is_equal_lms<T>(input: &[T], type_map: &BitsVec<SuffixType>, j: usize, k: usize) -> bool
+    where T: Num + NumCast + PartialOrd + Copy
+{
     if j == input.len() || k == input.len() {
         return false    // null byte
     }
@@ -79,7 +86,8 @@ fn is_equal_lms(input: &[usize], type_map: &BitsVec<SuffixType>, j: usize, k: us
 }
 
 // Increment the counter at an index
-fn insert(vec: &mut BitsVec<usize>, idx: usize) {
+fn insert<T>(vec: &mut BitsVec<usize>, value: T) where T: Num + NumCast + PartialOrd + Copy {
+    let idx = cast(value).unwrap();
     if vec.len() <= idx {
         vec.extend_with_element(idx + 1, 0);
     }
@@ -90,7 +98,7 @@ fn insert(vec: &mut BitsVec<usize>, idx: usize) {
 
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-pub fn suffix_array(input: &[usize]) -> Vec<usize> {
+pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + PartialOrd + Copy {
     let mut type_map = BitsVec::with_elements(2, input.len() + 1, SuffixType::Small);
     // We'll be adding the frequencies, so input.len() would be the worst case
     // (i.e., same character throughout the string)
@@ -155,7 +163,7 @@ pub fn suffix_array(input: &[usize]) -> Vec<usize> {
                 continue        // ignore the L and S types (for now)
             }
 
-            let bucket_idx = *byte;
+            let bucket_idx = cast(*byte).unwrap();
             let bucket_value = bucket_tails.get(bucket_idx);
             vec[bucket_value] = i;
             bucket_tails.set(bucket_idx, bucket_value - 1);
@@ -227,7 +235,7 @@ pub fn suffix_array(input: &[usize]) -> Vec<usize> {
         let mut suffix_idx = vec![MARKER; input.len() + 1];
         for i in (2..summary_sa.len()).rev() {
             let idx = summary_index.get(summary_sa[i]);
-            let bucket_idx = input[idx];
+            let bucket_idx = cast(input[idx]).unwrap();
             let bucket_value = bucket_tails.get(bucket_idx);
             suffix_idx[bucket_value] = idx;
             bucket_tails.set(bucket_idx, bucket_value - 1);

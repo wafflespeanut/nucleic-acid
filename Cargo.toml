@@ -8,3 +8,4 @@ path = "src/rust-fillings"
 version = "0.1"
 
 [dependencies]
+num-traits = "0.1"

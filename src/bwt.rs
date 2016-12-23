@@ -5,7 +5,7 @@ use sa::suffix_array;
 // Generate the BWT of input data (calls the given function with the BWT data as it's generated)
 pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
     // get the sorted suffix array
-    let sa = suffix_array(&input.iter().map(|i| *i as usize).collect::<Vec<_>>());
+    let sa = suffix_array(&input);
     let mut bw = vec![0; sa.len()];
 
     // BWT[i] = S[SA[i] - 1]
