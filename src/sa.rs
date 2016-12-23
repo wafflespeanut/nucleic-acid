@@ -102,8 +102,9 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
     let mut type_map = BitsVec::with_elements(2, input.len() + 1, SuffixType::Small);
     // We'll be adding the frequencies, so input.len() would be the worst case
     // (i.e., same character throughout the string)
-    let bits = (input.len().next_power_of_two() - 1).count_ones() as usize;
-    let mut bucket_sizes = BitsVec::new(bits);      // byte frequency (HashMap will be a killer in recursions)
+    let input_marker = input.len().next_power_of_two() - 1;
+    let input_bits = input_marker.count_ones() as usize;
+    let mut bucket_sizes = BitsVec::new(input_bits);      // byte frequency (HashMap will be a killer in recursions)
 
     type_map.set(input.len(), SuffixType::LeftMostSmall);      // null byte
     type_map.set(input.len() - 1, SuffixType::Large);          // should be L-type
@@ -135,9 +136,9 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
     // maximum value from our collection (say, MAX), get its size (MAX::bits) and pass it to BitsVec.
     // This way, we can reduce the memory consumed by more than half.
     let max_byte = bytes[bytes.len() - 1];
-    let mut bucket_tails = BitsVec::with_elements(bits, max_byte + 1, 0);
+    let mut bucket_tails = BitsVec::with_elements(input_bits, max_byte + 1, 0);
     // (bits + 1) would be worst case, since we'll be incrementing the values again in `induced_sort_large`
-    let mut bucket_heads = BitsVec::with_elements(bits + 1, max_byte + 1, 0);
+    let mut bucket_heads = BitsVec::with_elements(input_bits + 1, max_byte + 1, 0);
 
     // 2. Fill the bucket heads and tails (heads for L-types and tails for S-types)
     let mut j = 0;
@@ -183,7 +184,7 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
         // Approx SA is no longer needed (it'll be dropped when it goes out of scope)
         let mut approx_sa = approx_sa;
         let mut last_idx = approx_sa[0];
-        let mut lms_vec = BitsVec::with_elements(bits, input.len() + 1, input.len());
+        let mut lms_vec = BitsVec::with_elements(input_bits, input.len() + 1, input.len());
         lms_vec.set(last_idx, 0);
 
         for count in approx_sa.drain(1..) {
@@ -223,8 +224,8 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
         } else {
             let mut sum_sa = vec![0; summary_index.len() + 1];
             sum_sa[0] = summary_index.len();
-            for i in 0..summary_index.len() {
-                let idx = lms_bytes.get(summary_index.get(i));
+            for (i, val) in summary_index.iter().enumerate() {
+                let idx = lms_bytes.get(val);
                 sum_sa[idx + 1] = i;
             }
 
@@ -258,9 +259,8 @@ mod tests {
 
     #[test]
     fn test_suffix_array() {
-        let text = "ATCGAATCGAGAGATCATCGAATCGAGATCATCGAAATCATCGAATCGTC".to_owned();
-        let vec = text.chars().map(|i| i as usize).collect::<Vec<_>>();
-        let sa = suffix_array(&vec);
+        let text = b"ATCGAATCGAGAGATCATCGAATCGAGATCATCGAAATCATCGAATCGTC";
+        let sa = suffix_array(text);
 
         let mut rotations = (0..text.len()).map(|i| &text[i..]).collect::<Vec<_>>();
         rotations.sort();

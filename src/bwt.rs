@@ -4,22 +4,13 @@ use sa::suffix_array;
 
 // Generate the BWT of input data (calls the given function with the BWT data as it's generated)
 pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
-    // get the sorted suffix array
-    let sa = suffix_array(&input);
-    let mut bw = vec![0; sa.len()];
-
-    // BWT[i] = S[SA[i] - 1]
-    for i in 0..bw.len() {
-        if sa[i] == 0 {
-            bw[i] = 0;
-        } else {
-            bw[i] = input[sa[i] - 1];
-        }
-
-        f(bw[i]);     // call the function with the final value
-    }
-
-    bw
+    // get the BWT from sorted suffix array
+    suffix_array(&input).into_iter().map(|i| {
+        // BWT[i] = S[SA[i] - 1]
+        let val = if i == 0 { 0 } else { input[i - 1] };
+        f(val);     // call the function with the final value
+        val
+    }).collect()
 }
 
 // Takes a frequency map of bytes and generates the index of first occurrence
@@ -155,5 +146,29 @@ impl FMIndex {
             // last index of LF vector (or the first index of original string)
             self.lf_vec[i] % (self.data.len() - 1)
         }).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FMIndex, bwt, ibwt};
+
+    #[test]
+    fn test_bwt_and_ibwt() {
+        let text = String::from("ATCTAGGAGATCTGAATCTAGTTCAACTAGCTAGATCTAGAGACAGCTAA");
+        let bw = bwt(text.as_bytes().to_owned(), |_| ());
+        let ibw = ibwt(bw.clone());
+        assert_eq!(String::from("AATCGGAGTTGCTTTG\u{0}AGTAGTGATTTTAAGAAAAAACCCCCCTAAAACG"),
+                   String::from_utf8(bw).unwrap());
+        assert_eq!(text, String::from_utf8(ibw).unwrap());
+    }
+
+    #[test]
+    fn test_fm_index() {
+        let text = String::from("ATAGTGCCCAGGGCACTGCCGCTGCAGGCGCAGGCATCGCATCACACCAG");
+        let index = FMIndex::new(text.as_bytes().to_owned());
+        let mut result = index.search("TGC");
+        result.sort();
+        assert_eq!(result, vec![4, 16, 22]);
     }
 }
