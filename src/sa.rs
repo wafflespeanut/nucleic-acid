@@ -86,7 +86,9 @@ fn is_equal_lms<T>(input: &[T], type_map: &BitsVec<SuffixType>, j: usize, k: usi
 }
 
 // Increment the counter at an index
-fn insert<T>(vec: &mut BitsVec<usize>, value: T) where T: Num + NumCast + PartialOrd + Copy {
+pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
+    where T: Num + NumCast + PartialOrd + Copy
+{
     let idx = cast(value).unwrap();
     if vec.len() <= idx {
         vec.extend_with_element(idx + 1, 0);
@@ -94,6 +96,7 @@ fn insert<T>(vec: &mut BitsVec<usize>, value: T) where T: Num + NumCast + Partia
 
     let old = vec.get(idx);
     vec.set(idx, old + 1);
+    old + 1
 }
 
 // Generates a suffix array and sorts them using the "induced sorting" method
