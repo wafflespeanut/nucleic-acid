@@ -129,10 +129,9 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
     }
 
     let mut idx = 1;
-    let mut bytes = bucket_sizes.iter().enumerate().filter_map(|(i, c)| {
+    let bytes = bucket_sizes.iter().enumerate().filter_map(|(i, c)| {
         if c == 0 { None } else { Some(i) }
     }).collect::<Vec<_>>();
-    bytes.sort();
 
     // BitsVec always requires the max number of bits it should hold. Using the size of `usize`
     // would probably render it useless (as it'd be no different from a vector). So, we get the
