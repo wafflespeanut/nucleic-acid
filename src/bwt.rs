@@ -59,7 +59,6 @@ pub struct FMIndex {
     // BW-transformed data
     data: Vec<u8>,
     // forward frequency of each character in the BWT data
-    // (even the gigantic human genome doesn't exceed u32::MAX, so it's good for us)
     cache: BitsVec<usize>,
     // incremental character frequencies
     occ_map: BitsVec<usize>,
@@ -98,7 +97,7 @@ impl FMIndex {
         // Only difference is that we replace the LF indices with the lengths of prefix
         // from a particular position (in other words, the number of times
         // it would take us to get to the start of string).
-        while bwt_data[i] != 0 {
+        for _ in 0..bwt_data.len() {
             let next = lf_vec.get(i);
             lf_vec.set(i, counter);
             i = next;
@@ -139,7 +138,7 @@ impl FMIndex {
             let i = self.nearest(idx, self.data[idx]);
             // wrap around on overflow, which usually occurs only for the
             // last index of LF vector (or the first index of original string)
-            self.lf_vec.get(i) % (self.data.len() - 1)
+            self.lf_vec.get(i) % self.data.len()
         }).collect()
     }
 }
@@ -160,10 +159,14 @@ mod tests {
 
     #[test]
     fn test_fm_index() {
-        let text = String::from("ATAGTGCCCAGGGCACTGCCGCTGCAGGCGCAGGCATCGCATCACACCAG");
+        let text = String::from("GCGTGCCCAGGGCACTGCCGCTGCAGGCGTAGGCATCGCATCACACGCGT");
         let index = FMIndex::new(text.as_bytes().to_owned());
-        let mut result = index.search("TGC");
+        let mut result = index.search("TG");
         result.sort();
-        assert_eq!(result, vec![4, 16, 22]);
+        assert_eq!(result, vec![3, 15, 21]);
+        let mut result = index.search("GCGT");
+        result.sort();
+        assert_eq!(result, vec![0, 26, 46]);
+        assert_eq!(vec![1], index.search("CGTGCCC"));
     }
 }

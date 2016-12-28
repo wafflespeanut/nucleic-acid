@@ -82,8 +82,6 @@ impl<T: ReprUsize> BitsVec<T> {
                 "[push] input size is more than allowed size ({} >= {})", value, 2usize.pow(self.bits as u32));
 
         let mut idx = self.inner.len() - 1;
-        let shift;
-
         if self.leftover < self.bits {
             let left = self.bits - self.leftover;
             self.inner[idx] |= value >> left;
@@ -93,30 +91,22 @@ impl<T: ReprUsize> BitsVec<T> {
 
             self.inner.push(0);
             self.leftover = self.max_bits - left;
-            shift = self.max_bits - left;
             idx += 1;
         } else {
-            shift = self.leftover - self.bits;
             self.leftover -= self.bits;
         }
 
-        value <<= shift;
+        value <<= self.leftover;
         self.inner[idx] |= value;
         self.units += 1;
     }
 
     pub fn get(&self, i: usize) -> T {
         assert!(i < self.units, "[get] index out of bounds ({} >= {})", i, self.units);
-        self.checked_get(i).unwrap()
-    }
 
-    pub fn checked_get(&self, i: usize) -> Option<T> {
-        if i >= self.units {
-            return None
-        }
-
-        let idx = i * self.bits / self.max_bits;
-        let bits = (i * self.bits) % self.max_bits;
+        let pos = i * self.bits;
+        let idx = pos / self.max_bits;
+        let bits = pos % self.max_bits;
         let diff = self.max_bits - bits;
         let mut val = self.inner[idx];
         if bits != 0 {
@@ -124,12 +114,20 @@ impl<T: ReprUsize> BitsVec<T> {
         }
 
         if diff >= self.bits {
-            Some(T::from_usize(val >> (diff - self.bits)))
+            T::from_usize(val >> (diff - self.bits))
         } else {
             let shift = self.bits - diff;
-            let out = (val << shift) | (self.inner[idx + 1] >> (self.max_bits - shift));
-            Some(T::from_usize(out))
+            let last = self.inner[idx + 1] >> (self.max_bits - shift);
+            T::from_usize((val << shift) | last)
         }
+    }
+
+    pub fn checked_get(&self, i: usize) -> Option<T> {
+        if i >= self.units {
+            return None
+        }
+
+        Some(self.get(i))
     }
 
     pub fn set(&mut self, i: usize, value: T) {
@@ -138,8 +136,9 @@ impl<T: ReprUsize> BitsVec<T> {
         assert!(value >> self.bits == 0,
                 "[set] input size is more than allowed size ({} >= {})", value, 2usize.pow(self.bits as u32));
 
-        let idx = i * self.bits / self.max_bits;
-        let bits = (i * self.bits) % self.max_bits;
+        let pos = i * self.bits;
+        let idx = pos / self.max_bits;
+        let bits = pos % self.max_bits;
         let diff = self.max_bits - bits;
         let mut val = self.inner[idx];
 
@@ -152,12 +151,12 @@ impl<T: ReprUsize> BitsVec<T> {
             self.inner[idx] = val | last;
         } else {
             let shift = self.bits - diff;
-            self.inner[idx] >>= diff;
-            self.inner[idx] <<= diff;
-            self.inner[idx] |= value >> shift;
+            val &= !((1 << diff) - 1);
+            self.inner[idx] = val | (value >> shift);
             let last = value & ((1 << shift) - 1);
-            self.inner[idx + 1] &= (1 << (self.max_bits - shift)) - 1;
-            self.inner[idx + 1] |= last << (self.max_bits - shift);
+            let shift = self.max_bits - shift;
+            self.inner[idx + 1] &= (1 << shift) - 1;
+            self.inner[idx + 1] |= last << shift;
         }
     }
 
