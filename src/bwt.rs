@@ -1,5 +1,9 @@
+use bincode::SizeLimit;
+use bincode::rustc_serialize as serializer;
 use fillings::BitsVec;
 use sa::{insert, suffix_array};
+
+use std::io::{Read, Write};
 
 // Generate the BWT of input data (calls the given function with the BWT data as it's generated)
 pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
@@ -54,7 +58,7 @@ pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
     output
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, RustcEncodable, RustcDecodable)]
 pub struct FMIndex {
     // BW-transformed data
     data: Vec<u8>,
@@ -110,6 +114,14 @@ impl FMIndex {
             occ_map: map,
             lf_vec: lf_vec,
         }
+    }
+
+    pub fn load<R: Read>(reader: &mut R) -> Result<FMIndex, ()> {
+        serializer::decode_from(reader, SizeLimit::Infinite).map_err(|_| ())
+    }
+
+    pub fn dump<W: Write>(&self, writer: &mut W) -> Result<(), ()> {
+        serializer::encode_into(&self, writer, SizeLimit::Infinite).map_err(|_| ())
     }
 
     // Get the index of the nearest occurrence of a character in the BWT data
