@@ -1,14 +1,25 @@
+use bincode::SizeLimit;
+use bincode::rustc_serialize as serializer;
 use fillings::{BitsVec, ReprUsize};
 use num_traits::{Num, NumCast, cast};
+use rand::{self, Rng};
+use rustc_serialize::{Decodable, Encodable};
 
+use std::fs::File;
+use std::marker::PhantomData;
 use std::mem;
+use std::path::PathBuf;
 use std::usize;
 
 /// Prefer this for marking, instead of Option<usize> (as it requires additional byte of memory)
 const MARKER: usize = usize::MAX;
+/// Default working directory
+const DEFAULT_WD: &'static str = "/tmp";
+/// Input size beyond which we should prefer File I/O for generating suffix array
+const INPUT_LIMIT: usize = 16777216;        // 16 MB (which can take up to ~1 GB of RAM without File I/O)
 
 #[repr(usize)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, RustcEncodable, RustcDecodable)]
 enum SuffixType {
     Small,
     Large,
@@ -36,6 +47,7 @@ pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
     old + 1
 }
 
+#[derive(RustcEncodable, RustcDecodable)]
 struct SuffixArray {
     input: Vec<usize>,
     type_map: BitsVec<SuffixType>,
@@ -275,20 +287,82 @@ impl SuffixArray {
     }
 }
 
+trait Stack<T> {
+    fn push_back(&mut self, value: T);
+    fn pop_back(&mut self) -> Option<T>;
+}
+
+impl<T> Stack<T> for Vec<T> {
+    fn push_back(&mut self, value: T) {
+        self.push(value);
+    }
+
+    fn pop_back(&mut self) -> Option<T> {
+        self.pop()
+    }
+}
+
+struct StackDump<T: Encodable + Decodable> {
+    path: PathBuf,
+    name: String,
+    count: usize,
+    _marker: PhantomData<T>,
+}
+
+impl<T: Encodable + Decodable> StackDump<T> {
+    fn new(path: &str) -> StackDump<T> {
+        StackDump {
+            path: PathBuf::from(path),
+            name: rand::thread_rng().gen_ascii_chars().take(10).collect(),
+            count: 0,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T: Encodable + Decodable> Stack<T> for StackDump<T> {
+    fn push_back(&mut self, value: T) {
+        let mut path = self.path.clone();
+        path.push(format!("{}_{}", self.name, self.count));
+        let mut fd = File::create(path).unwrap();
+        serializer::encode_into(&value, &mut fd, SizeLimit::Infinite).unwrap();
+        self.count += 1;
+    }
+
+    fn pop_back(&mut self) -> Option<T> {
+        if self.count == 0 {
+            return None
+        }
+
+        self.count -= 1;
+        let mut path = self.path.clone();
+        path.push(format!("{}_{}", self.name, self.count));
+        let mut fd = File::open(path).unwrap();
+        Some(serializer::decode_from(&mut fd, SizeLimit::Infinite).unwrap())
+    }
+}
+
 pub fn suffix_array(input: &[u8]) -> Vec<usize> {
+    if input.len() > INPUT_LIMIT {
+        suffix_array_stacked(input, StackDump::new(DEFAULT_WD))
+    } else {
+        suffix_array_stacked(input, Vec::new())
+    }
+}
+
+fn suffix_array_stacked<T: Stack<SuffixArray>>(input: &[u8], mut stack: T) -> Vec<usize> {
     let mut sa = SuffixArray::build(input.into_iter().map(|i| *i as usize).collect());
-    let mut stack = Vec::new();
     let mut is_recursive = sa.prepare_for_stacking();
 
     while is_recursive {
         let mut next_sa = SuffixArray::build(sa.array.clone());
         is_recursive = next_sa.prepare_for_stacking();
-        stack.push(sa);
+        stack.push_back(sa);
         sa = next_sa;
     }
 
     sa.fix_stacked();
-    while let Some(mut next_sa) = stack.pop() {
+    while let Some(mut next_sa) = stack.pop_back() {
         next_sa.array = mem::replace(&mut sa.array, Vec::new());
         sa = next_sa;
         sa.fix_stacked();
