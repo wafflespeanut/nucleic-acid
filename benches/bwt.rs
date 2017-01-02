@@ -36,13 +36,13 @@ fn bench_suffix_array_1000_random_values(b: &mut Bencher) {
 #[bench]
 fn bench_fm_index_1000_random_values_constructor(b: &mut Bencher) {
     b.iter(|| {
-        FMIndex::new(DATA.clone());
+        FMIndex::create(DATA.clone());
     })
 }
 
 #[bench]
 fn bench_fm_index_1000_random_values_getter(b: &mut Bencher) {
-    let index = FMIndex::new(DATA.clone());
+    let index = FMIndex::create(DATA.clone());
     b.iter(|| {
         index.search("AAA");
     })

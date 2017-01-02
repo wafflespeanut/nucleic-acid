@@ -20,6 +20,7 @@ const INPUT_LIMIT: usize = 16777216;        // 16 MB (which can take up to ~1 GB
 
 #[repr(usize)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, RustcEncodable, RustcDecodable)]
+/// Enum to represent the type of a character in the data
 enum SuffixType {
     Small,
     Large,
@@ -33,7 +34,7 @@ impl ReprUsize for SuffixType {
     }
 }
 
-// Increment the counter at an index
+/// Increment the counter at an index (It extends with zeros and increments if the index is out of bounds)
 pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
     where T: Num + NumCast + PartialOrd + Copy
 {
@@ -48,6 +49,7 @@ pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
 }
 
 #[derive(RustcEncodable, RustcDecodable)]
+/// Suffix Array (built by the induced sorting method)
 struct SuffixArray {
     input: Vec<usize>,
     type_map: BitsVec<SuffixType>,
@@ -65,7 +67,7 @@ impl SuffixArray {
         // We'll be adding the frequencies, so input.len() would be the worst case
         // (i.e., same character throughout the string)
         let input_bits = (length.next_power_of_two() - 1).count_ones() as usize;
-        let mut bucket_sizes = BitsVec::new(input_bits);      // byte frequency (HashMap will be a killer in recursions)
+        let mut bucket_sizes = BitsVec::new(input_bits);      // byte frequency (HashMap will be a killer!)
 
         type_map.set(length, SuffixType::LeftMostSmall);      // null byte
         type_map.set(length - 1, SuffixType::Large);          // should be L-type
@@ -141,6 +143,7 @@ impl SuffixArray {
         }
     }
 
+    /// Induced sort with respect to the L-type
     fn induced_sort_large(&mut self) {
         let mut bucket_heads = self.bucket_heads.clone();
         for i in 0..self.array.len() {
@@ -160,6 +163,7 @@ impl SuffixArray {
         }
     }
 
+    /// Induced sort with respect to the S-type
     fn induced_sort_small(&mut self) {
         let mut bucket_tails = self.bucket_tails.clone();
         for i in (0..self.array.len()).rev() {
@@ -179,7 +183,7 @@ impl SuffixArray {
         }
     }
 
-    // Check whether the string between two LMS bytes have the same lengths and same contents
+    /// Check whether the string between two LMS bytes have the same lengths and same contents
     fn is_equal_lms(&self, j: usize, k: usize) -> bool {
         if j == self.input.len() || k == self.input.len() {
             return false    // null byte
@@ -198,7 +202,7 @@ impl SuffixArray {
         false
     }
 
-    /// Steps 4-5
+    /// Steps 4-5 (fill the vectors necessary for recursion)
     fn prepare_for_stacking(&mut self) -> bool {
         // 4. Induced sort with respect to L & S types (using the buckets)
         self.induced_sort_large();
@@ -261,7 +265,7 @@ impl SuffixArray {
         is_recursive
     }
 
-    /// Step 6 - Build the final SA
+    /// Step 6 - Build the final SA from the array (unwinded from recursion)
     fn fix_stacked(&mut self) {
         let mut bucket_tails = self.bucket_tails.clone();
         let mut suffix_idx = vec![MARKER; self.input.len() + 1];
@@ -287,6 +291,7 @@ impl SuffixArray {
     }
 }
 
+/// Private trait for representing a stack (memory-based or file-based)
 trait Stack<T> {
     fn push_back(&mut self, value: T);
     fn pop_back(&mut self) -> Option<T>;
@@ -302,6 +307,12 @@ impl<T> Stack<T> for Vec<T> {
     }
 }
 
+/// Type used for dumping the encodable/decodable values into files.
+///
+/// The files are prefixed with a random name (10-chars ASCII) and suffixed
+/// with a count. The count is incremented for each push, which (in this case)
+/// indicates the recursion level. It's very useful for the induced-sorting method,
+/// because we only need a few vectors at any moment.
 struct StackDump<T: Encodable + Decodable> {
     path: PathBuf,
     name: String,
@@ -342,6 +353,8 @@ impl<T: Encodable + Decodable> Stack<T> for StackDump<T> {
     }
 }
 
+/// A function for generating the suffix array. It chooses memory or file I/O
+/// for sorting, depending on the size of the input.
 pub fn suffix_array(input: &[u8]) -> Vec<usize> {
     if input.len() > INPUT_LIMIT {
         suffix_array_stacked(input, StackDump::new(DEFAULT_WD))
@@ -350,6 +363,16 @@ pub fn suffix_array(input: &[u8]) -> Vec<usize> {
     }
 }
 
+/// A function to build the suffix array, and to take care of the "stacking" along the way.
+/// Suffix array generation based on the "induced sorting" method.
+///
+/// We prefer stack over recursion<sup>[1]</sup> here, because the method obtains the
+/// suffix array in O(n) time by allocating additional vectors, all of which require
+/// O(n) spaces. Test runs have showed that building the SA for input sizes of ~250 MB
+/// have reached a peak of ~4 GB of physical memory (just before unwinding). This will
+/// allow us to go beyond that...
+///
+/// <sup>[1]: Well, all recursions can be replaced with a stack</sup>
 fn suffix_array_stacked<T: Stack<SuffixArray>>(input: &[u8], mut stack: T) -> Vec<usize> {
     let mut sa = SuffixArray::build(input.into_iter().map(|i| *i as usize).collect());
     let mut is_recursive = sa.prepare_for_stacking();
@@ -363,12 +386,12 @@ fn suffix_array_stacked<T: Stack<SuffixArray>>(input: &[u8], mut stack: T) -> Ve
 
     sa.fix_stacked();
     while let Some(mut next_sa) = stack.pop_back() {
-        next_sa.array = mem::replace(&mut sa.array, Vec::new());
+        next_sa.array = sa.array;
         sa = next_sa;
         sa.fix_stacked();
     }
 
-    mem::replace(&mut sa.array, Vec::new())
+    sa.array
 }
 
 #[cfg(test)]
