@@ -5,14 +5,14 @@ use num_traits::{Num, NumCast, cast};
 use rand::{self, Rng};
 use rustc_serialize::{Decodable, Encodable};
 
-use std::fs::File;
+use std::fs::{self, File};
 use std::marker::PhantomData;
 use std::mem;
 use std::path::PathBuf;
 use std::usize;
 
 /// Prefer this for marking, instead of Option<usize> (as it requires additional byte of memory)
-const MARKER: usize = usize::MAX;
+const MARKER: usize = usize::MAX;       // FIXME: Replace the markers with computed max bits
 /// Default working directory
 const DEFAULT_WD: &'static str = "/tmp";
 /// Input size beyond which we should prefer File I/O for generating suffix array
@@ -348,8 +348,10 @@ impl<T: Encodable + Decodable> Stack<T> for StackDump<T> {
         self.count -= 1;
         let mut path = self.path.clone();
         path.push(format!("{}_{}", self.name, self.count));
-        let mut fd = File::open(path).unwrap();
-        Some(serializer::decode_from(&mut fd, SizeLimit::Infinite).unwrap())
+        let mut fd = File::open(&path).unwrap();
+        let data = serializer::decode_from(&mut fd, SizeLimit::Infinite).unwrap();
+        fs::remove_file(path).unwrap();
+        Some(data)
     }
 }
 
@@ -378,9 +380,10 @@ fn suffix_array_stacked<T: Stack<SuffixArray>>(input: &[u8], mut stack: T) -> Ve
     let mut is_recursive = sa.prepare_for_stacking();
 
     while is_recursive {
-        let mut next_sa = SuffixArray::build(sa.array.clone());
-        is_recursive = next_sa.prepare_for_stacking();
+        let input = sa.array.clone();
         stack.push_back(sa);
+        let mut next_sa = SuffixArray::build(input);
+        is_recursive = next_sa.prepare_for_stacking();
         sa = next_sa;
     }
 

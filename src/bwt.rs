@@ -5,7 +5,7 @@ use sa::{insert, suffix_array};
 
 use std::io::{Read, Write};
 
-/// Generate the [Burrows-Wheeler transform](https://en.wikipedia.org/wiki/Burrows%E2%80%93Wheeler_transform)
+/// Generate the [Burrows-Wheeler transform](https://en.wikipedia.org/wiki/Burrows–Wheeler_transform)
 /// of input data (calls the given function (with the BWT data as it's generated)
 pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
     // get the BWT from sorted suffix array
