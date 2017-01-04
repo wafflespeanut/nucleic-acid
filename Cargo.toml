@@ -8,8 +8,6 @@ path = "src/rust-fillings"
 version = "0.1"
 
 [dependencies]
-bincode = "0.6"
-lazy_static = "0.1"
 num-traits = "0.1"
 rand = "0.3"
-rustc-serialize = "0.3"
+lazy_static = "0.1"

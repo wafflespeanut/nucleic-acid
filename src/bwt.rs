@@ -1,24 +1,19 @@
-use bincode::SizeLimit;
-use bincode::rustc_serialize as serializer;
 use fillings::BitsVec;
 use sa::{insert, suffix_array};
 
-use std::io::{Read, Write};
-
-/// Generate the [Burrows-Wheeler transform](https://en.wikipedia.org/wiki/Burrows–Wheeler_transform)
-/// of input data (calls the given function (with the BWT data as it's generated)
+// Generate the BWT of input data (calls the given function with the BWT data as it's generated)
 pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
     // get the BWT from sorted suffix array
-    let inp = input.clone();
-    suffix_array(inp).into_iter().map(|i| {
+    suffix_array(&input).into_iter().map(|i| {
         // BWT[i] = S[SA[i] - 1]
-        let val = if i == 0 { 0 } else { input[i - 1] as u8 };
+        let val = if i == 0 { 0 } else { input[i - 1] };
         f(val);     // call the function with the final value
         val
     }).collect()
 }
 
-/// Takes a frequency map of bytes and generates the index of first occurrence of each byte.
+// Takes a frequency map of bytes and generates the index of first occurrence
+// of each byte.
 fn generate_occurrence_index(map: &mut BitsVec<usize>) {
     let mut idx = 0;
     for i in 0..map.len() {
@@ -28,7 +23,7 @@ fn generate_occurrence_index(map: &mut BitsVec<usize>) {
     }
 }
 
-/// Invert the BWT data (generate the original data)
+// Invert the BWT data (generate the original data)
 pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
     // get the byte distribution
     let bits = (input.len().next_power_of_two() - 1).count_ones() as usize;
@@ -59,25 +54,20 @@ pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
     output
 }
 
-/// [Ferragina-Manzini index](https://en.wikipedia.org/wiki/FM-index) for the string
-/// searching problem (finds all substring positions in O(1) time).
-///
-/// It's optimized for space (using `BitsVec`) and time (without checkpointing along the way)
-#[derive(Clone, Debug, RustcEncodable, RustcDecodable)]
+#[derive(Clone, Debug)]
 pub struct FMIndex {
-    /// BW-transformed data
+    // BW-transformed data
     data: Vec<u8>,
-    /// Forward frequency of each character in the BWT data
+    // forward frequency of each character in the BWT data
     cache: BitsVec<usize>,
-    /// Incremental character frequencies
+    // incremental character frequencies
     occ_map: BitsVec<usize>,
-    /// LF-mapping for backward search
+    // LF-mapping for backward search
     lf_vec: BitsVec<usize>,
 }
 
 impl FMIndex {
-    /// Create a new `FMIndex` for the given text
-    pub fn create(data: Vec<u8>) -> FMIndex {
+    pub fn new(data: Vec<u8>) -> FMIndex {
         let mut idx = 0;
         // worst case (all bytes are distinct)
         let bits = (data.len().next_power_of_two() - 1).count_ones() as usize;
@@ -122,18 +112,7 @@ impl FMIndex {
         }
     }
 
-    /// Load the `FMIndex` from a reader
-    pub fn load<R: Read>(reader: &mut R) -> Result<FMIndex, ()> {
-        serializer::decode_from(reader, SizeLimit::Infinite).map_err(|_| ())
-    }
-
-    /// Write the `FMIndex` to a writer
-    pub fn dump<W: Write>(&self, writer: &mut W) -> Result<(), ()> {
-        serializer::encode_into(&self, writer, SizeLimit::Infinite).map_err(|_| ())
-    }
-
-    /// Get the index of the nearest occurrence of a character in the BWT data
-    /// ("magic" of BWT to skip most of the text and land at the necessary span)
+    // Get the index of the nearest occurrence of a character in the BWT data
     fn nearest(&self, idx: usize, ch: u8) -> usize {
         let mut result = self.occ_map.get(ch as usize);
         if result > 0 {
@@ -146,7 +125,7 @@ impl FMIndex {
         result
     }
 
-    /// Find the positions of occurrences of substrings in the original data.
+    // Find the positions of occurrences of sub-string in the original data.
     pub fn search(&self, query: &str) -> Vec<usize> {
         let mut top = 0;
         let mut bottom = self.data.len();
@@ -181,7 +160,7 @@ mod tests {
     #[test]
     fn test_fm_index() {
         let text = String::from("GCGTGCCCAGGGCACTGCCGCTGCAGGCGTAGGCATCGCATCACACGCGT");
-        let index = FMIndex::create(text.as_bytes().to_owned());
+        let index = FMIndex::new(text.as_bytes().to_owned());
         let mut result = index.search("TG");
         result.sort();
         assert_eq!(result, vec![3, 15, 21]);
