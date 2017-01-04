@@ -48,6 +48,29 @@ pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
     old + 1
 }
 
+/// Tiny hack to make the function take both `Vec` and `BitsVec`
+trait Collection {
+    type Item;
+    fn get(&self, i: usize) -> Self::Item;
+}
+
+impl<T: Copy> Collection for Vec<T> {
+    type Item = T;
+
+    fn get(&self, i: usize) -> T {
+        self[i]
+    }
+}
+
+impl<T: ReprUsize> Collection for BitsVec<T> {
+    type Item = T;
+
+    fn get(&self, i: usize) -> T {
+        BitsVec::get(&self, i)
+    }
+}
+
+
 #[derive(RustcEncodable, RustcDecodable)]
 /// Suffix Array (built by the induced sorting method)
 struct SuffixArray {
@@ -62,10 +85,9 @@ struct SuffixArray {
 
 impl SuffixArray {
     /// Steps 1-3
-    fn build<T, I>(input_iter: I, length: usize) -> SuffixArray
-        where I: DoubleEndedIterator<Item=T> + Clone, T: Num + NumCast + PartialOrd + Copy
+    fn build<C, T>(input: C, length: usize) -> SuffixArray
+        where C: Collection<Item=T>, T: Num + NumCast + PartialOrd + Copy
     {
-        let mut iter = input_iter.clone().rev();
         let mut type_map = BitsVec::with_elements(2, length + 1, SuffixType::Small);
         // We'll be adding the frequencies, so input.len() would be the worst case
         // (i.e., same character throughout the string)
@@ -75,12 +97,12 @@ impl SuffixArray {
 
         type_map.set(length, SuffixType::LeftMostSmall);      // null byte
         type_map.set(length - 1, SuffixType::Large);          // should be L-type
-        let mut last_byte = iter.next().unwrap();
+        let mut last_byte = input.get(length - 1);
         insert(&mut bucket_sizes, last_byte);
 
         // 1. Group the bytes into S-type or L-type (also mark LMS types)
         for i in (0..length - 1).rev() {
-            let cur_byte = iter.next().unwrap();
+            let cur_byte = input.get(i);
             let prev_type = type_map.get(i + 1);
             insert(&mut bucket_sizes, cur_byte);
 
@@ -127,7 +149,8 @@ impl SuffixArray {
         let approx_sa = {
             let mut vec = BitsVec::with_elements(32, length + 1, MARKER);
             let mut bucket_tails = bucket_tails.clone();
-            for (i, byte) in input_iter.clone().enumerate() {
+            for i in 0..length {
+                let byte = input.get(i);
                 if type_map.get(i) != SuffixType::LeftMostSmall {
                     continue        // ignore the L and S types (for now)
                 }
@@ -143,7 +166,7 @@ impl SuffixArray {
         };
 
         SuffixArray {
-            input: BitsVec::from_iter(max_bits, input_iter.map(|i| cast(i).unwrap())),
+            input: BitsVec::from_iter(max_bits, (0..length).map(|i| cast(input.get(i)).unwrap())),
             type_map: type_map,
             bucket_heads: bucket_heads,
             bucket_tails: bucket_tails,
@@ -389,14 +412,14 @@ pub fn suffix_array(input: Vec<u8>) -> Vec<usize> {
 /// <sup>[1]: Well, all recursions can be replaced with a stack</sup>
 fn suffix_array_stacked<T: Stack<SuffixArray>>(input: Vec<u8>, mut stack: T) -> Vec<usize> {
     let length = input.len();
-    let mut sa = SuffixArray::build(input.into_iter(), length);
+    let mut sa = SuffixArray::build(input, length);
     let mut is_recursive = sa.prepare_for_stacking();
 
     while is_recursive {
         let input = sa.array.clone();
         let length = input.len();
         stack.push_back(sa);
-        let mut next_sa = SuffixArray::build(input.into_iter(), length);
+        let mut next_sa = SuffixArray::build(input, length);
         is_recursive = next_sa.prepare_for_stacking();
         sa = next_sa;
     }
