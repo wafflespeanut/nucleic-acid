@@ -9,10 +9,10 @@ use std::fs::{self, File};
 use std::marker::PhantomData;
 use std::mem;
 use std::path::PathBuf;
-use std::usize;
+use std::u32;
 
 /// Prefer this for marking, instead of Option<usize> (as it requires additional byte of memory)
-const MARKER: usize = usize::MAX;       // FIXME: Replace the markers with computed max bits
+const MARKER: usize = u32::MAX as usize;    // FIXME: Replace the markers with computed max bytes
 /// Default working directory
 const DEFAULT_WD: &'static str = "/tmp";
 /// Input size beyond which we should prefer File I/O for generating suffix array
@@ -51,41 +51,49 @@ pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
 #[derive(RustcEncodable, RustcDecodable)]
 /// Suffix Array (built by the induced sorting method)
 struct SuffixArray {
-    input: Vec<usize>,
+    input: BitsVec<usize>,
     type_map: BitsVec<SuffixType>,
     bucket_heads: BitsVec<usize>,
     bucket_tails: BitsVec<usize>,
-    array: Vec<usize>,
+    array: BitsVec<usize>,
+    marker: usize,
     temp_array: BitsVec<usize>,
 }
 
 impl SuffixArray {
     /// Steps 1-3
-    fn build(input: Vec<usize>) -> SuffixArray {
-        let length = input.len();
+    fn build<T, I>(input_iter: I, length: usize) -> SuffixArray
+        where I: DoubleEndedIterator<Item=T> + Clone, T: Num + NumCast + PartialOrd + Copy
+    {
+        let mut iter = input_iter.clone().rev();
         let mut type_map = BitsVec::with_elements(2, length + 1, SuffixType::Small);
         // We'll be adding the frequencies, so input.len() would be the worst case
         // (i.e., same character throughout the string)
-        let input_bits = (length.next_power_of_two() - 1).count_ones() as usize;
+        let input_max = length.next_power_of_two() - 1;
+        let input_bits = input_max.count_ones() as usize;
         let mut bucket_sizes = BitsVec::new(input_bits);      // byte frequency (HashMap will be a killer!)
 
         type_map.set(length, SuffixType::LeftMostSmall);      // null byte
         type_map.set(length - 1, SuffixType::Large);          // should be L-type
-        insert(&mut bucket_sizes, input[length - 1]);
+        let mut last_byte = iter.next().unwrap();
+        insert(&mut bucket_sizes, last_byte);
 
         // 1. Group the bytes into S-type or L-type (also mark LMS types)
         for i in (0..length - 1).rev() {
+            let cur_byte = iter.next().unwrap();
             let prev_type = type_map.get(i + 1);
-            insert(&mut bucket_sizes, input[i]);
+            insert(&mut bucket_sizes, cur_byte);
 
-            if input[i] > input[i + 1] ||
-               (input[i] == input[i + 1] && prev_type == SuffixType::Large) {
+            if cur_byte > last_byte ||
+               (cur_byte == last_byte && prev_type == SuffixType::Large) {
                 if prev_type == SuffixType::Small {
                     type_map.set(i + 1, SuffixType::LeftMostSmall);
                 }
 
                 type_map.set(i, SuffixType::Large);
             }
+
+            last_byte = cur_byte;
         }
 
         let mut idx = 1;
@@ -98,6 +106,7 @@ impl SuffixArray {
         // maximum value from our collection (say, MAX), get its size (MAX::bits) and pass it to BitsVec.
         // This way, we can reduce the memory consumed by more than half.
         let max_byte = bytes[bytes.len() - 1];
+        let max_bits = (max_byte.next_power_of_two() - 1).count_ones() as usize;
         let mut bucket_tails = BitsVec::with_elements(input_bits, max_byte + 1, 0);
         // (bits + 1) would be worst case, since we'll be incrementing the values again in `induced_sort_large`
         let mut bucket_heads = BitsVec::with_elements(input_bits + 1, max_byte + 1, 0);
@@ -116,29 +125,30 @@ impl SuffixArray {
 
         // 3. Build the approximate SA for initial induced sorting
         let approx_sa = {
-            let mut vec = vec![MARKER; length + 1];
+            let mut vec = BitsVec::with_elements(32, length + 1, MARKER);
             let mut bucket_tails = bucket_tails.clone();
-            for (i, byte) in input.iter().enumerate() {
+            for (i, byte) in input_iter.clone().enumerate() {
                 if type_map.get(i) != SuffixType::LeftMostSmall {
                     continue        // ignore the L and S types (for now)
                 }
 
-                let bucket_idx = *byte;
+                let bucket_idx = cast(byte).unwrap();
                 let bucket_value = bucket_tails.get(bucket_idx);
-                vec[bucket_value] = i;
+                vec.set(bucket_value, i);
                 bucket_tails.set(bucket_idx, bucket_value - 1);
             }
 
-            vec[0] = length;        // null byte
+            vec.set(0, length);     // null byte
             vec
         };
 
         SuffixArray {
-            input: input,
+            input: BitsVec::from_iter(max_bits, input_iter.map(|i| cast(i).unwrap())),
             type_map: type_map,
             bucket_heads: bucket_heads,
             bucket_tails: bucket_tails,
             array: approx_sa,
+            marker: MARKER,
             temp_array: BitsVec::new(1),    // will be replaced later
         }
     }
@@ -147,18 +157,19 @@ impl SuffixArray {
     fn induced_sort_large(&mut self) {
         let mut bucket_heads = self.bucket_heads.clone();
         for i in 0..self.array.len() {
-            if self.array[i] == MARKER || self.array[i] == 0 {
+            let byte = self.array.get(i);
+            if byte == self.marker || byte == 0 {
                 continue
             }
 
-            let j = self.array[i] - 1;
+            let j = byte - 1;
             if self.type_map.get(j) != SuffixType::Large {
                 continue    // only the L-types
             }
 
-            let bucket_idx = self.input[j];
+            let bucket_idx = self.input.get(j);
             let bucket_value = bucket_heads.get(bucket_idx);
-            self.array[bucket_value] = j;
+            self.array.set(bucket_value, j);
             bucket_heads.set(bucket_idx, bucket_value + 1);
         }
     }
@@ -167,34 +178,36 @@ impl SuffixArray {
     fn induced_sort_small(&mut self) {
         let mut bucket_tails = self.bucket_tails.clone();
         for i in (0..self.array.len()).rev() {
-            if self.array[i] == MARKER || self.array[i] == 0 {
+            let byte = self.array.get(i);
+            if byte == self.marker || byte == 0 {
                 continue
             }
 
-            let j = self.array[i] - 1;
+            let j = byte - 1;
             if self.type_map.get(j) == SuffixType::Large {
                 continue    // only the S-types (and LMS-types as per our grouping)
             }
 
-            let bucket_idx = self.input[j];
+            let bucket_idx = self.input.get(j);
             let bucket_value = bucket_tails.get(bucket_idx);
-            self.array[bucket_value] = j;
+            self.array.set(bucket_value, j);
             bucket_tails.set(bucket_idx, bucket_value - 1);
         }
     }
 
     /// Check whether the string between two LMS bytes have the same lengths and same contents
     fn is_equal_lms(&self, j: usize, k: usize) -> bool {
-        if j == self.input.len() || k == self.input.len() {
+        let length = self.input.len();
+        if j == length || k == length {
             return false    // null byte
         }
 
-        for i in 0..(self.input.len() + 1) {
+        for i in 0..(length + 1) {
             let first_lms = self.type_map.get(i + j) == SuffixType::LeftMostSmall;
             let second_lms = self.type_map.get(i + k) == SuffixType::LeftMostSmall;
             if first_lms && second_lms && i > 0 {
                 return true
-            } else if (first_lms != second_lms) || (self.input[i + j] != self.input[i + k]) {
+            } else if (first_lms != second_lms) || (self.input.get(i + j) != self.input.get(i + k)) {
                 return false
             }
         }
@@ -214,13 +227,13 @@ impl SuffixArray {
         let input_bits = (self.input.len().next_power_of_two() - 1).count_ones() as usize;
         let lms_bytes = {
             // Approx SA is no longer needed (it'll be dropped when it goes out of scope)
-            let mut approx_sa = mem::replace(&mut self.array, Vec::new());
-            let mut last_idx = approx_sa[0];
+            let approx_sa = mem::replace(&mut self.array, BitsVec::new(1));
+            let mut last_idx = approx_sa.get(0);
             let mut lms_vec = BitsVec::with_elements(input_bits, length + 1, length);
             lms_vec.set(last_idx, 0);
 
-            for count in approx_sa.drain(1..) {
-                let idx = if count == MARKER { length } else { count };
+            for count in approx_sa.iter().skip(1) {
+                let idx = if count == self.marker { length } else { count };
                 if self.type_map.get(idx) != SuffixType::LeftMostSmall {
                     continue
                 }
@@ -237,8 +250,7 @@ impl SuffixArray {
         };
 
         // ... and filter the unnecessary bytes
-        let lms_bits = (lms_bytes.len().next_power_of_two() - 1).count_ones() as usize;
-        let mut summary_index = BitsVec::new(lms_bits);
+        let mut summary_index = BitsVec::new(32);
         for (i, b) in lms_bytes.iter().enumerate() {
             if b != length {
                 summary_index.push(i);
@@ -247,14 +259,14 @@ impl SuffixArray {
 
         let is_recursive = label + 1 < summary_index.len();
         let mapped_array = if is_recursive {
-            // we don't have enough labels - multiple LMS substrings are same (recursively sort it)
-            summary_index.iter().map(|i| lms_bytes.get(i)).collect()
+            // We don't have enough labels - multiple LMS substrings are same (recursively sort it)
+            BitsVec::from_iter(32, summary_index.iter().map(|i| lms_bytes.get(i)))
         } else {
-            let mut sum_sa = vec![0; summary_index.len() + 1];
-            sum_sa[0] = summary_index.len();
+            let mut sum_sa = BitsVec::with_elements(32, summary_index.len() + 1, 0);
+            sum_sa.set(0, summary_index.len());
             for (i, val) in summary_index.iter().enumerate() {
                 let idx = lms_bytes.get(val);
-                sum_sa[idx + 1] = i;
+                sum_sa.set(idx + 1, i);
             }
 
             sum_sa      // recursion begins to unwind (peek of memory consumption)
@@ -268,21 +280,21 @@ impl SuffixArray {
     /// Step 6 - Build the final SA from the array (unwinded from recursion)
     fn fix_stacked(&mut self) {
         let mut bucket_tails = self.bucket_tails.clone();
-        let mut suffix_idx = vec![MARKER; self.input.len() + 1];
+        let mut suffix_idx = BitsVec::with_elements(32, self.input.len() + 1, MARKER);
 
         {
             let ref summary_sa = self.array;
             let ref summary_index = self.temp_array;
             for i in (2..summary_sa.len()).rev() {
-                let idx = summary_index.get(summary_sa[i]);
-                let bucket_idx = self.input[idx];
+                let idx = summary_index.get(summary_sa.get(i));
+                let bucket_idx = self.input.get(idx);
                 let bucket_value = bucket_tails.get(bucket_idx);
-                suffix_idx[bucket_value] = idx;
+                suffix_idx.set(bucket_value, idx);
                 bucket_tails.set(bucket_idx, bucket_value - 1);
             }
         }
 
-        suffix_idx[0] = self.input.len();
+        suffix_idx.set(0, self.input.len());
         self.array = suffix_idx;
 
         // ... and sort it one last time
@@ -357,7 +369,7 @@ impl<T: Encodable + Decodable> Stack<T> for StackDump<T> {
 
 /// A function for generating the suffix array. It chooses memory or file I/O
 /// for sorting, depending on the size of the input.
-pub fn suffix_array(input: &[u8]) -> Vec<usize> {
+pub fn suffix_array(input: Vec<u8>) -> Vec<usize> {
     if input.len() > INPUT_LIMIT {
         suffix_array_stacked(input, StackDump::new(DEFAULT_WD))
     } else {
@@ -375,14 +387,16 @@ pub fn suffix_array(input: &[u8]) -> Vec<usize> {
 /// allow us to go beyond that...
 ///
 /// <sup>[1]: Well, all recursions can be replaced with a stack</sup>
-fn suffix_array_stacked<T: Stack<SuffixArray>>(input: &[u8], mut stack: T) -> Vec<usize> {
-    let mut sa = SuffixArray::build(input.into_iter().map(|i| *i as usize).collect());
+fn suffix_array_stacked<T: Stack<SuffixArray>>(input: Vec<u8>, mut stack: T) -> Vec<usize> {
+    let length = input.len();
+    let mut sa = SuffixArray::build(input.into_iter(), length);
     let mut is_recursive = sa.prepare_for_stacking();
 
     while is_recursive {
         let input = sa.array.clone();
+        let length = input.len();
         stack.push_back(sa);
-        let mut next_sa = SuffixArray::build(input);
+        let mut next_sa = SuffixArray::build(input.into_iter(), length);
         is_recursive = next_sa.prepare_for_stacking();
         sa = next_sa;
     }
@@ -394,7 +408,7 @@ fn suffix_array_stacked<T: Stack<SuffixArray>>(input: &[u8], mut stack: T) -> Ve
         sa.fix_stacked();
     }
 
-    sa.array
+    sa.array.iter().collect()
 }
 
 #[cfg(test)]
@@ -404,7 +418,7 @@ mod tests {
     #[test]
     fn test_suffix_array() {
         let text = b"ATCGAATCGAGAGATCATCGAATCGAGATCATCGAAATCATCGAATCGTC";
-        let sa = suffix_array(text);
+        let sa = suffix_array(text.iter().cloned().collect::<Vec<_>>());
 
         let mut rotations = (0..text.len()).map(|i| &text[i..]).collect::<Vec<_>>();
         rotations.sort();

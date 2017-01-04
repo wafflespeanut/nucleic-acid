@@ -9,7 +9,8 @@ use std::io::{Read, Write};
 /// of input data (calls the given function (with the BWT data as it's generated)
 pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
     // get the BWT from sorted suffix array
-    suffix_array(&input).into_iter().map(|i| {
+    let inp = input.clone();
+    suffix_array(inp).into_iter().map(|i| {
         // BWT[i] = S[SA[i] - 1]
         let val = if i == 0 { 0 } else { input[i - 1] as u8 };
         f(val);     // call the function with the final value

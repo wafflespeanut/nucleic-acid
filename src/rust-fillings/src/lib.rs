@@ -308,6 +308,7 @@ impl<'a, T: ReprUsize> DoubleEndedIterator for Iter<'a, T> {
 
 impl<'a, T: ReprUsize> ExactSizeIterator for Iter<'a, T> {}
 
+#[derive(Clone)]
 pub struct IntoIter<T: ReprUsize> {
     vec: BitsVec<T>,
     range: Range<usize>,
