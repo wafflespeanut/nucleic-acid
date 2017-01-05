@@ -1,3 +1,5 @@
+extern crate rustc_serialize;
+
 use std::cmp;
 use std::fmt;
 use std::marker::PhantomData;
@@ -44,7 +46,7 @@ impl_predefined_type!(i32);
 impl_predefined_type!(i64);
 impl_predefined_type!(isize);
 
-#[derive(Clone, Hash)]
+#[derive(Clone, Hash, RustcEncodable, RustcDecodable)]
 pub struct BitsVec<T: ReprUsize> {
     inner: Vec<usize>,
     units: usize,

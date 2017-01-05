@@ -1,10 +1,16 @@
+use bincode::SizeLimit;
+use bincode::rustc_serialize as serializer;
 use fillings::BitsVec;
 use sa::{insert, suffix_array};
+
+use std::fs::File;
+use std::path::Path;
 
 // Generate the BWT of input data (calls the given function with the BWT data as it's generated)
 pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
     // get the BWT from sorted suffix array
-    suffix_array(&input).into_iter().map(|i| {
+    let (input, sa) = suffix_array(input);
+    sa.into_iter().map(|i| {
         // BWT[i] = S[SA[i] - 1]
         let val = if i == 0 { 0 } else { input[i - 1] };
         f(val);     // call the function with the final value
@@ -54,7 +60,7 @@ pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
     output
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, RustcEncodable, RustcDecodable)]
 pub struct FMIndex {
     // BW-transformed data
     data: Vec<u8>,
@@ -110,6 +116,16 @@ impl FMIndex {
             occ_map: map,
             lf_vec: lf_vec,
         }
+    }
+
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<FMIndex, ()> {
+        let mut fd = try!(File::open(path).map_err(|_| ()));
+        serializer::decode_from(&mut fd, SizeLimit::Infinite).map_err(|_| ())
+    }
+
+    pub fn dump<P: AsRef<Path>>(&self, path: P) -> Result<(), ()> {
+        let mut fd = try!(File::create(path).map_err(|_| ()));
+        serializer::encode_into(&self, &mut fd, SizeLimit::Infinite).map_err(|_| ())
     }
 
     // Get the index of the nearest occurrence of a character in the BWT data

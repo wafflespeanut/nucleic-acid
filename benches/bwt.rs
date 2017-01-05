@@ -29,7 +29,7 @@ fn bench_sort_rotations_1000_random_values(b: &mut Bencher) {
 #[bench]
 fn bench_suffix_array_1000_random_values(b: &mut Bencher) {
     b.iter(|| {
-        suffix_array(&DATA);
+        suffix_array(DATA.clone());
     })
 }
 

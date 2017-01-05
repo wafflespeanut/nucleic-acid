@@ -1,5 +1,9 @@
 use fillings::{BitsVec, ReprUsize};
 use num_traits::{Num, NumCast, cast};
+use rand::{self, Rng};
+use rustc_serialize::{Encodable, Decodable};
+
+use io as sa_io;
 
 use std::mem;
 use std::usize;
@@ -8,7 +12,7 @@ use std::usize;
 const MARKER: usize = usize::MAX;
 
 #[repr(usize)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, RustcEncodable, RustcDecodable)]
 enum SuffixType {
     Small,
     Large,
@@ -68,11 +72,12 @@ fn induced_sort_small<T>(input: &[T], approx_sa: &mut [usize],
 fn is_equal_lms<T>(input: &[T], type_map: &BitsVec<SuffixType>, j: usize, k: usize) -> bool
     where T: Num + NumCast + PartialOrd + Copy
 {
-    if j == input.len() || k == input.len() {
+    let length = input.len();
+    if j == length || k == length {
         return false    // null byte
     }
 
-    for i in 0..(input.len() + 1) {
+    for i in 0..(length + 1) {
         let first_lms = type_map.get(i + j) == SuffixType::LeftMostSmall;
         let second_lms = type_map.get(i + k) == SuffixType::LeftMostSmall;
         if first_lms && second_lms && i > 0 {
@@ -99,22 +104,48 @@ pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
     old + 1
 }
 
+pub fn suffix_array(input: Vec<u8>) -> (Vec<u8>, Vec<usize>) {
+    let name = rand::thread_rng().gen_ascii_chars().take(10).collect::<String>();
+    suffix_array_stacked(input, true, 0, &name)
+}
+
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + PartialOrd + Copy {
-    let mut type_map = BitsVec::with_elements(2, input.len() + 1, SuffixType::Small);
+fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &str) -> (Vec<T>, Vec<usize>)
+    where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
+{
+    let length = input.len();
+
+    macro_rules! io {
+        ($name: ident > $var: expr, $init: expr) => {
+            if is_stacked {
+                let path = format!("{}_{}_{}", name, $var, level);
+                let temp = mem::replace(&mut $name, $init);
+                sa_io::write(&path, &temp);
+            }
+        };
+        ($name: ident < $var: expr) => {
+            if is_stacked {
+                let path = format!("{}_{}_{}", name, $var, level);
+                let data = sa_io::read(&path);
+                mem::replace(&mut $name, data);
+            }
+        }
+    }
+
+    let mut type_map = BitsVec::with_elements(2, length + 1, SuffixType::Small);
     // We'll be adding the frequencies, so input.len() would be the worst case
     // (i.e., same character throughout the string)
-    let input_marker = input.len().next_power_of_two() - 1;
+    let input_marker = length.next_power_of_two() - 1;
     let input_bits = input_marker.count_ones() as usize;
     let mut bucket_sizes = BitsVec::new(input_bits);      // byte frequency (HashMap will be a killer in recursions)
 
-    type_map.set(input.len(), SuffixType::LeftMostSmall);      // null byte
-    type_map.set(input.len() - 1, SuffixType::Large);          // should be L-type
-    insert(&mut bucket_sizes, input[input.len() - 1]);
+    type_map.set(length, SuffixType::LeftMostSmall);      // null byte
+    type_map.set(length - 1, SuffixType::Large);          // should be L-type
+    insert(&mut bucket_sizes, input[length - 1]);
 
     // 1. Group the bytes into S-type or L-type (also mark LMS types)
-    for i in (0..input.len() - 1).rev() {
+    for i in (0..length - 1).rev() {
         let prev_type = type_map.get(i + 1);
         insert(&mut bucket_sizes, input[i]);
 
@@ -159,7 +190,7 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
 
     // 3. Build the approximate SA for initial induced sorting
     let mut approx_sa = {
-        let mut vec = vec![MARKER; input.len() + 1];
+        let mut vec = vec![MARKER; length + 1];
         let mut bucket_tails = bucket_tails.clone();
         for (i, byte) in input.iter().enumerate() {
             if type_map.get(i) != SuffixType::LeftMostSmall {
@@ -172,13 +203,16 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
             bucket_tails.set(bucket_idx, bucket_value - 1);
         }
 
-        vec[0] = input.len();       // null byte
+        vec[0] = length;    // null byte
         vec
     };
 
     // 4. Induced sort with respect to L & S types (using the buckets)
     induced_sort_large(&input, &mut approx_sa, bucket_heads.clone(), &type_map);
+    io!(bucket_heads > "bh", BitsVec::new(1));
+
     induced_sort_small(&input, &mut approx_sa, bucket_tails.clone(), &type_map);
+    io!(bucket_tails > "bt", BitsVec::new(1));
 
     // 5. Record the indices that share LMS substrings
     let mut label = 0;
@@ -186,11 +220,11 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
         // Approx SA is no longer needed (it'll be dropped when it goes out of scope)
         let mut approx_sa = approx_sa;
         let mut last_idx = approx_sa[0];
-        let mut lms_vec = BitsVec::with_elements(input_bits, input.len() + 1, input.len());
+        let mut lms_vec = BitsVec::with_elements(input_bits, length + 1, length);
         lms_vec.set(last_idx, 0);
 
         for count in approx_sa.drain(1..) {
-            let idx = if count == MARKER { input.len() } else { count };
+            let idx = if count == MARKER { length } else { count };
             if type_map.get(idx) != SuffixType::LeftMostSmall {
                 continue
             }
@@ -206,23 +240,25 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
         lms_vec
     };
 
+    io!(type_map > "tm", BitsVec::new(1));
+    io!(input > "in", Vec::new());
+
     // ... and filter the unnecessary bytes
     let lms_bits = (lms_bytes.len().next_power_of_two() - 1).count_ones() as usize;
     let mut summary_index = BitsVec::new(lms_bits);
     for (i, b) in lms_bytes.iter().enumerate() {
-        if b != input.len() {
+        if b != length {
             summary_index.push(i);
         }
     }
 
     // 6. Build the final SA
     let mut final_sa = {
-        let mut bucket_tails = bucket_tails.clone();
         let summary_sa = if label + 1 < summary_index.len() {
             // recursion (we don't have enough labels - multiple LMS substrings are same)
             let mapped = summary_index.iter().map(|i| lms_bytes.get(i)).collect::<Vec<_>>();
             drop(lms_bytes);
-            suffix_array(&mapped)
+            suffix_array_stacked(mapped, is_stacked, level + 1, name).1
         } else {
             let mut sum_sa = vec![0; summary_index.len() + 1];
             sum_sa[0] = summary_index.len();
@@ -235,7 +271,11 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
             sum_sa      // recursion begins to unwind (peek of memory consumption)
         };
 
-        let mut suffix_idx = vec![MARKER; input.len() + 1];
+        io!(input < "in");
+        io!(bucket_tails < "bt");
+
+        let mut bucket_tails = bucket_tails.clone();
+        let mut suffix_idx = vec![MARKER; length + 1];
         for i in (2..summary_sa.len()).rev() {
             let idx = summary_index.get(summary_sa[i]);
             let bucket_idx = cast(input[idx]).unwrap();
@@ -244,15 +284,18 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<usize>  where T: Num + NumCast + Part
             bucket_tails.set(bucket_idx, bucket_value - 1);
         }
 
-        suffix_idx[0] = input.len();
+        suffix_idx[0] = length;
         suffix_idx
     };
+
+    io!(type_map < "tm");
+    io!(bucket_heads < "bh");
 
     // ... and sort it one last time
     induced_sort_large(&input, &mut final_sa, bucket_heads, &type_map);
     induced_sort_small(&input, &mut final_sa, bucket_tails, &type_map);
 
-    final_sa
+    (input, final_sa)
 }
 
 #[cfg(test)]
@@ -262,7 +305,7 @@ mod tests {
     #[test]
     fn test_suffix_array() {
         let text = b"ATCGAATCGAGAGATCATCGAATCGAGATCATCGAAATCATCGAATCGTC";
-        let sa = suffix_array(text);
+        let sa = suffix_array(text.iter().map(|i| *i).collect::<Vec<_>>()).1;
 
         let mut rotations = (0..text.len()).map(|i| &text[i..]).collect::<Vec<_>>();
         rotations.sort();
