@@ -1,21 +1,17 @@
 use bincode::SizeLimit;
 use bincode::rustc_serialize as serializer;
 use fillings::BitsVec;
-use sa::{insert, suffix_array};
+use sa::{Output, insert, suffix_array_or_bwt};
 
 use std::fs::File;
 use std::path::Path;
 
 // Generate the BWT of input data (calls the given function with the BWT data as it's generated)
-pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
-    // get the BWT from sorted suffix array
-    let (input, sa) = suffix_array(input);
-    sa.into_iter().map(|i| {
-        // BWT[i] = S[SA[i] - 1]
-        let val = if i == 0 { 0 } else { input[(i - 1) as usize] };
-        f(val);     // call the function with the final value
-        val
-    }).collect()
+pub fn bwt(input: Vec<u8>) -> Vec<u8> {
+    match suffix_array_or_bwt(input, /* generate bwt */ true) {
+        Output::BWT(v) => v,
+        _ => unreachable!(),
+    }
 }
 
 // Takes a frequency map of bytes and generates the index of first occurrence
@@ -80,22 +76,24 @@ impl FMIndex {
         let mut map = BitsVec::new(bits);
         let mut count = BitsVec::with_elements(bits, data.len() + 1, 0);
         let mut lf_vec = count.clone();
+        let bwt_data = bwt(data);
 
-        // generate the frequency map and forward frequency vector as we transform the data
-        let bwt_data = bwt(data, |i| {
-            let value = insert(&mut map, i);
+        // generate the frequency map and forward frequency vector from BWT
+        for i in &bwt_data {
+            let value = insert(&mut map, *i);
             count.set(idx, value);
             idx += 1;
-        });
+        }
 
         generate_occurrence_index(&mut map);
 
         let mut lf_occ_map = map.clone();
         // generate the LF vector (just like inverting the BWT)
         for (i, c) in bwt_data.iter().enumerate() {
-            let val = lf_occ_map.get(*c as usize);
+            let idx = *c as usize;
+            let val = lf_occ_map.get(idx);
             lf_vec.set(i, val);
-            lf_occ_map.set(*c as usize, val + 1);
+            lf_occ_map.set(idx, val + 1);
         }
 
         let mut i = 0;
@@ -166,7 +164,7 @@ mod tests {
     #[test]
     fn test_bwt_and_ibwt() {
         let text = String::from("ATCTAGGAGATCTGAATCTAGTTCAACTAGCTAGATCTAGAGACAGCTAA");
-        let bw = bwt(text.as_bytes().to_owned(), |_| ());
+        let bw = bwt(text.as_bytes().to_owned());
         let ibw = ibwt(bw.clone());
         assert_eq!(String::from("AATCGGAGTTGCTTTG\u{0}AGTAGTGATTTTAAGAAAAAACCCCCCTAAAACG"),
                    String::from_utf8(bw).unwrap());

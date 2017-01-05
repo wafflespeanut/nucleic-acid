@@ -110,15 +110,29 @@ pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
     old + 1
 }
 
-pub fn suffix_array(input: Vec<u8>) -> (Vec<u8>, Vec<u32>) {
+pub enum Output<T: Num + NumCast + PartialOrd + Copy> {
+    BWT(Vec<T>),
+    SA(Vec<u32>),
+}
+
+pub fn suffix_array(input: Vec<u8>) -> Vec<u32> {
+    match suffix_array_or_bwt(input, false) {
+        Output::SA(v) => v,
+        _ => unreachable!(),
+    }
+}
+
+pub fn suffix_array_or_bwt<T>(input: Vec<T>, bwt: bool) -> Output<T>
+    where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
+{
     let name = rand::thread_rng().gen_ascii_chars().take(10).collect::<String>();
     let is_stacked = input.len() > INPUT_LIMIT;
-    suffix_array_stacked(input, is_stacked, 0, &name)
+    suffix_array_(input, is_stacked, 0, &name, bwt)
 }
 
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &str) -> (Vec<T>, Vec<u32>)
+fn suffix_array_<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &str, bwt: bool) -> Output<T>
     where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
 {
     let length = input.len();
@@ -228,7 +242,7 @@ fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, na
         // Approx SA is no longer needed (it'll be dropped when it goes out of scope)
         let mut approx_sa = approx_sa;
         let mut last_idx = approx_sa[0] as usize;
-        let mut lms_vec: BitsVec<u32> = BitsVec::with_elements(input_bits, length + 1, length_32);
+        let mut lms_vec = BitsVec::with_elements(input_bits, length + 1, length_32);
         lms_vec.set(last_idx, 0);
 
         for count in approx_sa.drain(1..) {
@@ -266,7 +280,10 @@ fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, na
             // recursion (we don't have enough labels - multiple LMS substrings are same)
             let mapped = summary_index.iter().map(|i| lms_bytes.get(i)).collect::<Vec<_>>();
             drop(lms_bytes);
-            suffix_array_stacked(mapped, is_stacked, level + 1, name).1
+            match suffix_array_(mapped, is_stacked, level + 1, name, bwt) {
+                Output::SA(v) => v,
+                _ => unreachable!(),
+            }
         } else {
             let mut sum_sa = vec![0; summary_index.len() + 1];
             sum_sa[0] = summary_index.len() as u32;
@@ -303,7 +320,16 @@ fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, na
     induced_sort_large(&input, &mut final_sa, bucket_heads, &type_map);
     induced_sort_small(&input, &mut final_sa, bucket_tails, &type_map);
 
-    (input, final_sa)
+    if level == 0 && bwt {
+        Output::BWT(
+            final_sa.into_iter().map(|i| {
+                // BWT[i] = S[SA[i] - 1]
+                if i == 0 { cast(0).unwrap() } else { input[(i - 1) as usize] }
+            }).collect()
+        )
+    } else {
+        Output::SA(final_sa)
+    }
 }
 
 #[cfg(test)]
@@ -313,7 +339,7 @@ mod tests {
     #[test]
     fn test_suffix_array() {
         let text = b"ATCGAATCGAGAGATCATCGAATCGAGATCATCGAAATCATCGAATCGTC";
-        let sa = suffix_array(text.iter().map(|i| *i).collect::<Vec<_>>()).1;
+        let sa = suffix_array(text.iter().map(|i| *i).collect::<Vec<_>>());
 
         let mut rotations = (0..text.len()).map(|i| &text[i as usize..]).collect::<Vec<_>>();
         rotations.sort();
