@@ -12,7 +12,7 @@ pub fn bwt<F: FnMut(u8)>(input: Vec<u8>, mut f: F) -> Vec<u8> {
     let (input, sa) = suffix_array(input);
     sa.into_iter().map(|i| {
         // BWT[i] = S[SA[i] - 1]
-        let val = if i == 0 { 0 } else { input[i - 1] };
+        let val = if i == 0 { 0 } else { input[(i - 1) as usize] };
         f(val);     // call the function with the final value
         val
     }).collect()

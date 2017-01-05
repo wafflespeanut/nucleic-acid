@@ -16,6 +16,12 @@ lazy_static! {
         let bases = vec![65, 67, 71, 84];
         (0..1000).map(|_| bases[rng.gen_range(0, bases.len())]).collect()
     };
+
+    static ref QUERY: String = {
+        let mut rng = rand::thread_rng();
+        let idx = rng.gen_range(0, DATA.len() - 100);
+        String::from_utf8_lossy(&DATA[idx..idx + 100]).into_owned()
+    };
 }
 
 #[bench]
@@ -41,9 +47,9 @@ fn bench_fm_index_1000_random_values_constructor(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_fm_index_1000_random_values_getter(b: &mut Bencher) {
+fn bench_fm_index_1000_random_values_get_100_chars(b: &mut Bencher) {
     let index = FMIndex::new(DATA.clone());
     b.iter(|| {
-        index.search("AAA");
+        index.search(&QUERY);
     })
 }

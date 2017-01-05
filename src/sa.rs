@@ -6,10 +6,14 @@ use rustc_serialize::{Encodable, Decodable};
 use io as sa_io;
 
 use std::mem;
-use std::usize;
+use std::u32;
 
-// Prefer this for marking, instead of Option<usize> (as it requires additional byte of memory)
-const MARKER: usize = usize::MAX;
+// Prefer this for marking, instead of Option<u32> (as it requires additional byte of memory)
+// We could use usize here, but it will consume a great deal of memory. Keeping that aside, even
+// the size of the giant human genome is only 70% of this value (~3 billion bases). So, we're good...
+const MARKER: u32 = u32::MAX;
+// Prefer file I/O if the input size exceeds this (10M) limit
+const INPUT_LIMIT: usize = 10000000;
 
 #[repr(usize)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, RustcEncodable, RustcDecodable)]
@@ -26,44 +30,46 @@ impl ReprUsize for SuffixType {
     }
 }
 
-fn induced_sort_large<T>(input: &[T], approx_sa: &mut [usize],
+fn induced_sort_large<T>(input: &[T], approx_sa: &mut [u32],
                          mut bucket_heads: BitsVec<usize>, type_map: &BitsVec<SuffixType>)
     where T: Num + NumCast + PartialOrd + Copy
 {
     for i in 0..approx_sa.len() {
-        if approx_sa[i] == MARKER || approx_sa[i] == 0 {
+        let byte = approx_sa[i];
+        if byte == MARKER || byte == 0 {
             continue
         }
 
-        let j = approx_sa[i] - 1;
+        let j = (byte - 1) as usize;
         if type_map.get(j) != SuffixType::Large {
             continue    // only the L-types
         }
 
         let bucket_idx = cast(input[j]).unwrap();
         let bucket_value = bucket_heads.get(bucket_idx);
-        approx_sa[bucket_value] = j;
+        approx_sa[bucket_value] = byte - 1;
         bucket_heads.set(bucket_idx, bucket_value + 1);
     }
 }
 
-fn induced_sort_small<T>(input: &[T], approx_sa: &mut [usize],
+fn induced_sort_small<T>(input: &[T], approx_sa: &mut [u32],
                          mut bucket_tails: BitsVec<usize>, type_map: &BitsVec<SuffixType>)
     where T: Num + NumCast + PartialOrd + Copy
 {
     for i in (0..approx_sa.len()).rev() {
-        if approx_sa[i] == MARKER || approx_sa[i] == 0 {
+        let byte = approx_sa[i];
+        if byte == MARKER || byte == 0 {
             continue
         }
 
-        let j = approx_sa[i] - 1;
+        let j = (byte - 1) as usize;
         if type_map.get(j) == SuffixType::Large {
             continue    // only the S-types (and LMS-types as per our grouping)
         }
 
         let bucket_idx = cast(input[j]).unwrap();
         let bucket_value = bucket_tails.get(bucket_idx);
-        approx_sa[bucket_value] = j;
+        approx_sa[bucket_value] = byte - 1;
         bucket_tails.set(bucket_idx, bucket_value - 1);
     }
 }
@@ -104,17 +110,19 @@ pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
     old + 1
 }
 
-pub fn suffix_array(input: Vec<u8>) -> (Vec<u8>, Vec<usize>) {
+pub fn suffix_array(input: Vec<u8>) -> (Vec<u8>, Vec<u32>) {
     let name = rand::thread_rng().gen_ascii_chars().take(10).collect::<String>();
-    suffix_array_stacked(input, true, 0, &name)
+    let is_stacked = input.len() > INPUT_LIMIT;
+    suffix_array_stacked(input, is_stacked, 0, &name)
 }
 
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &str) -> (Vec<T>, Vec<usize>)
+fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &str) -> (Vec<T>, Vec<u32>)
     where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
 {
     let length = input.len();
+    let length_32 = length as u32;
 
     macro_rules! io {
         ($name: ident > $var: expr, $init: expr) => {
@@ -199,11 +207,11 @@ fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, na
 
             let bucket_idx = cast(*byte).unwrap();
             let bucket_value = bucket_tails.get(bucket_idx);
-            vec[bucket_value] = i;
+            vec[bucket_value] = i as u32;
             bucket_tails.set(bucket_idx, bucket_value - 1);
         }
 
-        vec[0] = length;    // null byte
+        vec[0] = length_32;     // null byte
         vec
     };
 
@@ -219,12 +227,12 @@ fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, na
     let lms_bytes = {
         // Approx SA is no longer needed (it'll be dropped when it goes out of scope)
         let mut approx_sa = approx_sa;
-        let mut last_idx = approx_sa[0];
-        let mut lms_vec = BitsVec::with_elements(input_bits, length + 1, length);
+        let mut last_idx = approx_sa[0] as usize;
+        let mut lms_vec: BitsVec<u32> = BitsVec::with_elements(input_bits, length + 1, length_32);
         lms_vec.set(last_idx, 0);
 
         for count in approx_sa.drain(1..) {
-            let idx = if count == MARKER { length } else { count };
+            let idx = if count == MARKER { length } else { count as usize };
             if type_map.get(idx) != SuffixType::LeftMostSmall {
                 continue
             }
@@ -247,24 +255,24 @@ fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, na
     let lms_bits = (lms_bytes.len().next_power_of_two() - 1).count_ones() as usize;
     let mut summary_index = BitsVec::new(lms_bits);
     for (i, b) in lms_bytes.iter().enumerate() {
-        if b != length {
+        if b != length_32 {
             summary_index.push(i);
         }
     }
 
     // 6. Build the final SA
     let mut final_sa = {
-        let summary_sa = if label + 1 < summary_index.len() {
+        let summary_sa = if label + 1 < summary_index.len() as u32 {
             // recursion (we don't have enough labels - multiple LMS substrings are same)
             let mapped = summary_index.iter().map(|i| lms_bytes.get(i)).collect::<Vec<_>>();
             drop(lms_bytes);
             suffix_array_stacked(mapped, is_stacked, level + 1, name).1
         } else {
             let mut sum_sa = vec![0; summary_index.len() + 1];
-            sum_sa[0] = summary_index.len();
+            sum_sa[0] = summary_index.len() as u32;
             for (i, val) in summary_index.iter().enumerate() {
-                let idx = lms_bytes.get(val);
-                sum_sa[idx + 1] = i;
+                let idx = lms_bytes.get(val) as usize;
+                sum_sa[idx + 1] = i as u32;
             }
 
             drop(lms_bytes);
@@ -277,14 +285,14 @@ fn suffix_array_stacked<T>(mut input: Vec<T>, is_stacked: bool, level: usize, na
         let mut bucket_tails = bucket_tails.clone();
         let mut suffix_idx = vec![MARKER; length + 1];
         for i in (2..summary_sa.len()).rev() {
-            let idx = summary_index.get(summary_sa[i]);
+            let idx = summary_index.get(summary_sa[i] as usize);
             let bucket_idx = cast(input[idx]).unwrap();
             let bucket_value = bucket_tails.get(bucket_idx);
-            suffix_idx[bucket_value] = idx;
+            suffix_idx[bucket_value] = idx as u32;
             bucket_tails.set(bucket_idx, bucket_value - 1);
         }
 
-        suffix_idx[0] = length;
+        suffix_idx[0] = length_32;
         suffix_idx
     };
 
@@ -307,10 +315,10 @@ mod tests {
         let text = b"ATCGAATCGAGAGATCATCGAATCGAGATCATCGAAATCATCGAATCGTC";
         let sa = suffix_array(text.iter().map(|i| *i).collect::<Vec<_>>()).1;
 
-        let mut rotations = (0..text.len()).map(|i| &text[i..]).collect::<Vec<_>>();
+        let mut rotations = (0..text.len()).map(|i| &text[i as usize..]).collect::<Vec<_>>();
         rotations.sort();
 
-        assert_eq!(sa.into_iter().skip(1).map(|i| &text[i..]).collect::<Vec<_>>(),
+        assert_eq!(sa.into_iter().skip(1).map(|i| &text[i as usize..]).collect::<Vec<_>>(),
                    rotations);
     }
 }
