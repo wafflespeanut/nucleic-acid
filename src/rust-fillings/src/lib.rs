@@ -185,9 +185,33 @@ impl<T: ReprUsize> BitsVec<T> {
         self.inner.reserve(additional * self.bits / self.max_bits + 1);
     }
 
+    pub fn shrink_to_fit(&mut self) {
+        self.inner.shrink_to_fit();
+    }
+
+    pub fn truncate(&mut self, length: usize) {
+        assert!(length < self.units, "length should be smaller for truncation ({} >= {})", length, self.units);
+        self.units = length;
+
+        let bits = length * self.bits;
+        let mut new_len = bits / self.max_bits;
+        let used = bits % self.max_bits;
+        if used > 0 {
+            new_len += 1;
+        }
+
+        self.inner.truncate(new_len);
+        if used > 0 {
+            self.leftover = self.max_bits - used;
+            self.inner[new_len - 1] &= ((1 << used) - 1) << self.leftover;
+        } else {
+            self.inner.push(0);
+            self.leftover = self.max_bits;
+        }
+    }
+
     pub fn clear(&mut self) {
-        let bits = self.bits;
-        mem::replace(self, BitsVec::new(bits));
+        self.truncate(0);
     }
 
     pub fn inner_len(&self) -> usize {
@@ -246,7 +270,7 @@ impl<T: ReprUsize + Clone> BitsVec<T> {
             remain -= temp.units;
         }
 
-        for _ in 0..remain {
+        for _ in 0..remain {    // remaining valus, if any
             self.push(value.clone());
         }
     }
@@ -372,5 +396,21 @@ mod tests {
         for i in 3..vec.len() {
             assert_eq!(vec.get(i), TestEnum::Value4);
         }
+    }
+
+    #[test]
+    fn test_truncate() {
+        let mut vec = BitsVec::with_elements(7, 50, 13);
+        vec.truncate(10);
+        assert_eq!(vec.inner_len(), 2);
+        assert_eq!(vec.get(9), 13);
+        vec.push(25);
+        assert_eq!(vec.get(10), 25);
+        let mut vec = BitsVec::with_elements(8, 20, 50);
+        vec.truncate(8);
+        assert_eq!(vec.inner_len(), 2);
+        assert_eq!(vec.get(7), 50);
+        vec.push(20);
+        assert_eq!(vec.get(8), 20);
     }
 }
