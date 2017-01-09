@@ -1,9 +1,9 @@
-use fillings::{BitsVec, ReprUsize};
+use bit_vec::BitVec;
+use fillings::BitsVec;
 use num_traits::{Num, NumCast, cast};
 use rand::{self, Rng};
 use rustc_serialize::{Encodable, Decodable};
 
-use std::mem;
 use std::u32;
 
 // Prefer this for marking, instead of Option<u32> (as it requires additional byte of memory)
@@ -11,23 +11,8 @@ use std::u32;
 // the size of the giant human genome is only 70% of this value (~3 billion bases). So, we're good...
 const MARKER: u32 = u32::MAX;
 
-#[repr(usize)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, RustcEncodable, RustcDecodable)]
-enum SuffixType {
-    Small,
-    Large,
-    LeftMostSmall,
-}
-
-impl ReprUsize for SuffixType {
-    fn into_usize(self) -> usize { self as usize }
-    fn from_usize(i: usize) -> SuffixType {
-        unsafe { mem::transmute(i) }
-    }
-}
-
 fn induced_sort_large<T>(input: &[T], approx_sa: &mut [u32],
-                         mut bucket_heads: BitsVec<usize>, type_map: &BitsVec<SuffixType>)
+                         mut bucket_heads: BitsVec<usize>, type_map: &BitVec)
     where T: Num + NumCast + PartialOrd + Copy
 {
     for i in 0..approx_sa.len() {
@@ -37,7 +22,7 @@ fn induced_sort_large<T>(input: &[T], approx_sa: &mut [u32],
         }
 
         let j = (byte - 1) as usize;
-        if type_map.get(j) != SuffixType::Large {
+        if !type_map.get(j).unwrap() {
             continue    // only the L-types
         }
 
@@ -49,7 +34,7 @@ fn induced_sort_large<T>(input: &[T], approx_sa: &mut [u32],
 }
 
 fn induced_sort_small<T>(input: &[T], approx_sa: &mut [u32],
-                         mut bucket_tails: BitsVec<usize>, type_map: &BitsVec<SuffixType>)
+                         mut bucket_tails: BitsVec<usize>, type_map: &BitVec)
     where T: Num + NumCast + PartialOrd + Copy
 {
     for i in (0..approx_sa.len()).rev() {
@@ -59,8 +44,8 @@ fn induced_sort_small<T>(input: &[T], approx_sa: &mut [u32],
         }
 
         let j = (byte - 1) as usize;
-        if type_map.get(j) == SuffixType::Large {
-            continue    // only the S-types (and LMS-types as per our grouping)
+        if type_map.get(j).unwrap() {
+            continue    // only the S-types
         }
 
         let bucket_idx = cast(input[j]).unwrap();
@@ -71,7 +56,7 @@ fn induced_sort_small<T>(input: &[T], approx_sa: &mut [u32],
 }
 
 // Check whether the string between two LMS bytes have the same lengths and same contents
-fn is_equal_lms<T>(input: &[T], type_map: &BitsVec<SuffixType>, j: usize, k: usize) -> bool
+fn is_equal_lms<T>(input: &[T], lms_map: &BitVec, j: usize, k: usize) -> bool
     where T: Num + NumCast + PartialOrd + Copy
 {
     let length = input.len();
@@ -80,8 +65,8 @@ fn is_equal_lms<T>(input: &[T], type_map: &BitsVec<SuffixType>, j: usize, k: usi
     }
 
     for i in 0..(length + 1) {
-        let first_lms = type_map.get(i + j) == SuffixType::LeftMostSmall;
-        let second_lms = type_map.get(i + k) == SuffixType::LeftMostSmall;
+        let first_lms = lms_map.get(i + j).unwrap();
+        let second_lms = lms_map.get(i + k).unwrap();
         if first_lms && second_lms && i > 0 {
             return true
         } else if (first_lms != second_lms) || (input[i + j] != input[i + k]) {
@@ -133,29 +118,31 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
     let length = input.len();
     let length_32 = length as u32;
 
-    let mut type_map = BitsVec::with_elements(2, length + 1, SuffixType::Small);
+    let mut type_map = BitVec::from_elem(length + 1, false);    // `false` for S-type and `true` for L-type
+    let mut lms_map = BitVec::from_elem(length + 1, false);     // LMS type
+
     // We'll be adding the frequencies, so input.len() would be the worst case
     // (i.e., same character throughout the string)
     let input_marker = length.next_power_of_two() - 1;
     let input_bits = input_marker.count_ones() as usize;
     let mut bucket_sizes = BitsVec::new(input_bits);      // byte frequency (HashMap will be a killer in recursions)
 
-    type_map.set(length, SuffixType::LeftMostSmall);      // null byte
-    type_map.set(length - 1, SuffixType::Large);          // should be L-type
+    lms_map.set(length, true);          // null byte
+    type_map.set(length - 1, true);     // should be L-type
     insert(&mut bucket_sizes, input[length - 1]);
 
     // 1. Group the bytes into S-type or L-type (also mark LMS types)
     for i in (0..length - 1).rev() {
-        let prev_type = type_map.get(i + 1);
+        let prev_type = type_map.get(i + 1).unwrap();
         insert(&mut bucket_sizes, input[i]);
 
         if input[i] > input[i + 1] ||
-           (input[i] == input[i + 1] && prev_type == SuffixType::Large) {
-            if prev_type == SuffixType::Small {
-                type_map.set(i + 1, SuffixType::LeftMostSmall);
+           (input[i] == input[i + 1] && prev_type /* L-type */) {
+            if !prev_type /* S-type */ {
+                lms_map.set(i + 1, true);
             }
 
-            type_map.set(i, SuffixType::Large);
+            type_map.set(i, true);
         }
     }
 
@@ -193,7 +180,7 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
         let mut vec = vec![MARKER; length + 1];
         let mut bucket_tails = bucket_tails.clone();
         for (i, byte) in input.iter().enumerate() {
-            if type_map.get(i) != SuffixType::LeftMostSmall {
+            if !lms_map.get(i).unwrap() {
                 continue        // ignore the L and S types (for now)
             }
 
@@ -222,11 +209,11 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
 
         for count in approx_sa.drain(1..) {
             let idx = if count == MARKER { length } else { count as usize };
-            if type_map.get(idx) != SuffixType::LeftMostSmall {
+            if !lms_map.get(idx).unwrap() {
                 continue
             }
 
-            if !is_equal_lms(&input, &type_map, last_idx, idx) {
+            if !is_equal_lms(&input, &lms_map, last_idx, idx) {
                 label += 1;
             }
 
@@ -236,6 +223,8 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
 
         lms_vec
     };
+
+    drop(lms_map);
 
     // ... and filter the unnecessary bytes
     let lms_bits = (lms_bytes.len().next_power_of_two() - 1).count_ones() as usize;
