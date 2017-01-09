@@ -12,7 +12,7 @@ use std::u32;
 const MARKER: u32 = u32::MAX;
 
 fn induced_sort_large<T>(input: &[T], approx_sa: &mut [u32],
-                         mut bucket_heads: BitsVec<usize>, type_map: &BitVec)
+                         mut bucket_heads: Vec<u32>, type_map: &BitVec)
     where T: Num + NumCast + PartialOrd + Copy
 {
     for i in 0..approx_sa.len() {
@@ -26,15 +26,15 @@ fn induced_sort_large<T>(input: &[T], approx_sa: &mut [u32],
             continue    // only the L-types
         }
 
-        let bucket_idx = cast(input[j]).unwrap();
-        let bucket_value = bucket_heads.get(bucket_idx);
-        approx_sa[bucket_value] = byte - 1;
-        bucket_heads.set(bucket_idx, bucket_value + 1);
+        let bucket_idx: usize = cast(input[j]).unwrap();
+        let bucket_value = bucket_heads[bucket_idx];
+        approx_sa[bucket_value as usize] = byte - 1;
+        bucket_heads[bucket_idx] += 1;
     }
 }
 
 fn induced_sort_small<T>(input: &[T], approx_sa: &mut [u32],
-                         mut bucket_tails: BitsVec<usize>, type_map: &BitVec)
+                         mut bucket_tails: Vec<u32>, type_map: &BitVec)
     where T: Num + NumCast + PartialOrd + Copy
 {
     for i in (0..approx_sa.len()).rev() {
@@ -48,10 +48,10 @@ fn induced_sort_small<T>(input: &[T], approx_sa: &mut [u32],
             continue    // only the S-types
         }
 
-        let bucket_idx = cast(input[j]).unwrap();
-        let bucket_value = bucket_tails.get(bucket_idx);
-        approx_sa[bucket_value] = byte - 1;
-        bucket_tails.set(bucket_idx, bucket_value - 1);
+        let bucket_idx: usize = cast(input[j]).unwrap();
+        let bucket_value = bucket_tails[bucket_idx];
+        approx_sa[bucket_value as usize] = byte - 1;
+        bucket_tails[bucket_idx] -= 1;
     }
 }
 
@@ -91,6 +91,18 @@ pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
     old + 1
 }
 
+pub fn insert_vec<T>(vec: &mut Vec<u32>, value: T) -> u32
+    where T: Num + NumCast + PartialOrd + Copy
+{
+    let idx = cast(value).unwrap();
+    if vec.len() <= idx {
+        vec.resize(idx + 1, 0);
+    }
+
+    vec[idx] += 1;
+    vec[idx]
+}
+
 pub enum Output<T: Num + NumCast + PartialOrd + Copy> {
     BWT(Vec<T>),
     SA(Vec<u32>),
@@ -125,16 +137,16 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
     // (i.e., same character throughout the string)
     let input_marker = length.next_power_of_two() - 1;
     let input_bits = input_marker.count_ones() as usize;
-    let mut bucket_sizes = BitsVec::new(input_bits);      // byte frequency (HashMap will be a killer in recursions)
+    let mut bucket_sizes = Vec::new();      // byte frequency (HashMap will be a killer in recursions)
 
     lms_map.set(length, true);          // null byte
     type_map.set(length - 1, true);     // should be L-type
-    insert(&mut bucket_sizes, input[length - 1]);
+    insert_vec(&mut bucket_sizes, input[length - 1]);
 
     // 1. Group the bytes into S-type or L-type (also mark LMS types)
     for i in (0..length - 1).rev() {
         let prev_type = type_map.get(i + 1).unwrap();
-        insert(&mut bucket_sizes, input[i]);
+        insert_vec(&mut bucket_sizes, input[i]);
 
         if input[i] > input[i + 1] ||
            (input[i] == input[i + 1] && prev_type /* L-type */) {
@@ -148,28 +160,23 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
 
     let mut idx = 1;
     let bytes = bucket_sizes.iter().enumerate().filter_map(|(i, c)| {
-        if c == 0 { None } else { Some(i) }
+        if *c == 0 { None } else { Some(i) }
     }).collect::<Vec<_>>();
 
-    // BitsVec always requires the max number of bits it should hold. Using the size of `usize`
-    // would probably render it useless (as it'd be no different from a vector). So, we get the
-    // maximum value from our collection (say, MAX), get its size (MAX::bits) and pass it to BitsVec.
-    // This way, we can reduce the memory consumed by more than half.
     let max_byte = bytes[bytes.len() - 1];
-    let mut bucket_tails = BitsVec::with_elements(input_bits, max_byte + 1, 0);
-    // (bits + 1) would be worst case, since we'll be incrementing the values again in `induced_sort_large`
-    let mut bucket_heads = BitsVec::with_elements(input_bits + 1, max_byte + 1, 0);
+    let mut bucket_tails = vec![0u32; max_byte + 1];
+    let mut bucket_heads = vec![0u32; max_byte + 1];
 
     // 2. Fill the bucket heads and tails (heads for L-types and tails for S-types)
     let mut j = 0;
     for i in 0..(max_byte + 1) {
-        bucket_heads.set(i, idx);
+        bucket_heads[i] = idx;
         if i == bytes[j] {
-            idx += bucket_sizes.get(bytes[j]);
+            idx += bucket_sizes[bytes[j]];
             j += 1;
         }
 
-        bucket_tails.set(i, idx - 1);
+        bucket_tails[i] = idx - 1;
     }
 
     drop(bytes);
@@ -184,10 +191,10 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
                 continue        // ignore the L and S types (for now)
             }
 
-            let bucket_idx = cast(*byte).unwrap();
-            let bucket_value = bucket_tails.get(bucket_idx);
-            vec[bucket_value] = i as u32;
-            bucket_tails.set(bucket_idx, bucket_value - 1);
+            let bucket_idx: usize = cast(*byte).unwrap();
+            let bucket_value = bucket_tails[bucket_idx];
+            vec[bucket_value as usize] = i as u32;
+            bucket_tails[bucket_idx] -= 1;
         }
 
         vec[0] = length_32;     // null byte
@@ -261,10 +268,10 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
         let mut suffix_idx = vec![MARKER; length + 1];
         for i in (2..summary_sa.len()).rev() {
             let idx = summary_index.get(summary_sa[i] as usize);
-            let bucket_idx = cast(input[idx]).unwrap();
-            let bucket_value = bucket_tails.get(bucket_idx);
-            suffix_idx[bucket_value] = idx as u32;
-            bucket_tails.set(bucket_idx, bucket_value - 1);
+            let bucket_idx: usize = cast(input[idx]).unwrap();
+            let bucket_value = bucket_tails[bucket_idx];
+            suffix_idx[bucket_value as usize] = idx as u32;
+            bucket_tails[bucket_idx] -= 1;
         }
 
         suffix_idx[0] = length_32;
