@@ -5,7 +5,6 @@ extern crate rand;
 extern crate rustc_serialize;
 
 mod bwt;
-mod io;
 mod sa;
 mod trie;
 

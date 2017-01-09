@@ -3,8 +3,6 @@ use num_traits::{Num, NumCast, cast};
 use rand::{self, Rng};
 use rustc_serialize::{Encodable, Decodable};
 
-use io as sa_io;
-
 use std::mem;
 use std::u32;
 
@@ -12,8 +10,6 @@ use std::u32;
 // We could use usize here, but it will consume a great deal of memory. Keeping that aside, even
 // the size of the giant human genome is only 70% of this value (~3 billion bases). So, we're good...
 const MARKER: u32 = u32::MAX;
-// Prefer file I/O if the input size exceeds this (10M) limit
-const INPUT_LIMIT: usize = 10000000;
 
 #[repr(usize)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, RustcEncodable, RustcDecodable)]
@@ -126,34 +122,16 @@ pub fn suffix_array_or_bwt<T>(input: Vec<T>, bwt: bool) -> Output<T>
     where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
 {
     let name = rand::thread_rng().gen_ascii_chars().take(10).collect::<String>();
-    let is_stacked = input.len() > INPUT_LIMIT;
-    suffix_array_(input, is_stacked, 0, &name, bwt)
+    suffix_array_(input, 0, &name, bwt)
 }
 
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-fn suffix_array_<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &str, bwt: bool) -> Output<T>
+fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Output<T>
     where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
 {
     let length = input.len();
     let length_32 = length as u32;
-
-    macro_rules! io {
-        ($name: ident > $var: expr, $init: expr) => {
-            if is_stacked {
-                let path = format!("{}_{}_{}", name, $var, level);
-                let temp = mem::replace(&mut $name, $init);
-                sa_io::write(&path, &temp);
-            }
-        };
-        ($name: ident < $var: expr) => {
-            if is_stacked {
-                let path = format!("{}_{}_{}", name, $var, level);
-                let data = sa_io::read(&path);
-                mem::replace(&mut $name, data);
-            }
-        }
-    }
 
     let mut type_map = BitsVec::with_elements(2, length + 1, SuffixType::Small);
     // We'll be adding the frequencies, so input.len() would be the worst case
@@ -231,10 +209,7 @@ fn suffix_array_<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &st
 
     // 4. Induced sort with respect to L & S types (using the buckets)
     induced_sort_large(&input, &mut approx_sa, bucket_heads.clone(), &type_map);
-    io!(bucket_heads > "bh", BitsVec::new(1));
-
     induced_sort_small(&input, &mut approx_sa, bucket_tails.clone(), &type_map);
-    io!(bucket_tails > "bt", BitsVec::new(1));
 
     // 5. Record the indices that share LMS substrings
     let mut label = 0;
@@ -262,9 +237,6 @@ fn suffix_array_<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &st
         lms_vec
     };
 
-    io!(type_map > "tm", BitsVec::new(1));
-    io!(input > "in", Vec::new());
-
     // ... and filter the unnecessary bytes
     let lms_bits = (lms_bytes.len().next_power_of_two() - 1).count_ones() as usize;
     let mut summary_index = BitsVec::new(lms_bits);
@@ -280,7 +252,7 @@ fn suffix_array_<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &st
             // recursion (we don't have enough labels - multiple LMS substrings are same)
             let mapped = summary_index.iter().map(|i| lms_bytes.get(i)).collect::<Vec<_>>();
             drop(lms_bytes);
-            match suffix_array_(mapped, is_stacked, level + 1, name, bwt) {
+            match suffix_array_(mapped, level + 1, name, bwt) {
                 Output::SA(v) => v,
                 _ => unreachable!(),
             }
@@ -293,11 +265,8 @@ fn suffix_array_<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &st
             }
 
             drop(lms_bytes);
-            sum_sa      // recursion begins to unwind (peek of memory consumption)
+            sum_sa      // recursion begins to unwind
         };
-
-        io!(input < "in");
-        io!(bucket_tails < "bt");
 
         let mut bucket_tails = bucket_tails.clone();
         let mut suffix_idx = vec![MARKER; length + 1];
@@ -313,14 +282,11 @@ fn suffix_array_<T>(mut input: Vec<T>, is_stacked: bool, level: usize, name: &st
         suffix_idx
     };
 
-    io!(type_map < "tm");
-    io!(bucket_heads < "bh");
-
     // ... and sort it one last time
     induced_sort_large(&input, &mut final_sa, bucket_heads, &type_map);
     induced_sort_small(&input, &mut final_sa, bucket_tails, &type_map);
 
-    if level == 0 && bwt {
+    if level == 0 && bwt {      // peek of memory consumption
         Output::BWT(
             final_sa.into_iter().map(|i| {
                 // BWT[i] = S[SA[i] - 1]
