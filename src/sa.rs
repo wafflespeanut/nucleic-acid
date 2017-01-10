@@ -94,21 +94,15 @@ pub enum Output<T: Num + NumCast + PartialOrd + Copy> {
 }
 
 pub fn suffix_array(input: Vec<u8>) -> Vec<u32> {
-    match suffix_array_or_bwt(input, false) {
+    match suffix_array_(input, 0, false) {
         Output::SA(v) => v,
         _ => unreachable!(),
     }
 }
 
-pub fn suffix_array_or_bwt<T>(input: Vec<T>, bwt: bool) -> Output<T>
-    where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
-{
-    suffix_array_(input, 0, bwt)
-}
-
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-fn suffix_array_<T>(input: Vec<T>, level: usize, bwt: bool) -> Output<T>
+pub fn suffix_array_<T>(input: Vec<T>, level: usize, bwt: bool) -> Output<T>
     where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
 {
     let length = input.len();
@@ -186,7 +180,7 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, bwt: bool) -> Output<T>
 
     // 5. Record the indices that share LMS substrings
     let mut label = 0;
-    let lms_bytes = {
+    let mut lms_bytes = {
         // Approx SA is no longer needed (it'll be dropped when it goes out of scope)
         let mut approx_sa = approx_sa;
         let mut last_idx = approx_sa[0] as usize;
@@ -212,42 +206,47 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, bwt: bool) -> Output<T>
 
     drop(lms_map);
 
-    // ... and filter the unnecessary bytes
-    let summary_index = lms_bytes.iter().enumerate().filter_map(|(i, b)| {
-        if *b == length_32 {
-            None
-        } else {
-            Some(i)
+    // Both these vectors (even if they're combined) are smaller than `lms_bytes`.
+    // So, we can filter out the unnecessary bytes and drop `lms_bytes`
+    let mut summary_index_idx = Vec::with_capacity(lms_bytes.len() / 2);
+    let mut summary_index_val = Vec::with_capacity(lms_bytes.len() / 2);
+
+    for (i, b) in lms_bytes.drain(..).enumerate() {
+        if b != length_32 {
+            summary_index_idx.push(i as u32);
+            summary_index_val.push(b);
         }
-    }).collect::<Vec<_>>();
+    }
+
+    let summary_len = summary_index_idx.len() as u32;
+    drop(lms_bytes);
 
     // 6. Build the final SA
     let mut final_sa = {
-        let summary_sa = if label + 1 < summary_index.len() as u32 {
+        let summary_sa = if label + 1 < summary_len {
             // recursion (we don't have enough labels - multiple LMS substrings are same)
-            let mapped = summary_index.iter().map(|i| lms_bytes[*i]).collect::<Vec<_>>();
-            drop(lms_bytes);
-            match suffix_array_(mapped, level + 1, bwt) {
+            match suffix_array_(summary_index_val, level + 1, bwt) {
                 Output::SA(v) => v,
                 _ => unreachable!(),
             }
         } else {
-            let mut sum_sa = vec![0; summary_index.len() + 1];
-            sum_sa[0] = summary_index.len() as u32;
-            for (i, val) in summary_index.iter().enumerate() {
-                let idx = lms_bytes[*val] as usize;
-                sum_sa[idx + 1] = i as u32;
+            let summary_index = summary_index_val;
+            let mut sum_sa = vec![0u32; summary_index.len() + 1];
+            sum_sa[0] = summary_len;
+            for (i, idx) in summary_index.into_iter().enumerate() {
+                sum_sa[idx as usize + 1] = i as u32;
             }
 
-            drop(lms_bytes);
             sum_sa      // recursion begins to unwind
         };
 
         let mut bucket_tails = bucket_tails.clone();
         let mut suffix_idx = vec![MARKER; length + 1];
+        let summary_index = summary_index_idx;
+
         for i in (2..summary_sa.len()).rev() {
             let idx = summary_index[summary_sa[i] as usize];
-            let bucket_idx: usize = cast(input[idx]).unwrap();
+            let bucket_idx: usize = cast(input[idx as usize]).unwrap();
             let bucket_value = bucket_tails[bucket_idx];
             suffix_idx[bucket_value as usize] = idx as u32;
             bucket_tails[bucket_idx] -= 1;
@@ -257,15 +256,13 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, bwt: bool) -> Output<T>
         suffix_idx
     };
 
-    drop(summary_index);
-
     // ... and sort it one last time
     induced_sort_large(&input, &mut final_sa, bucket_heads, &type_map);
     induced_sort_small(&input, &mut final_sa, bucket_tails, &type_map);
 
     if level == 0 && bwt {      // peek of memory consumption
         Output::BWT(
-            final_sa.into_iter().map(|i| {
+            final_sa.drain(..).map(|i| {
                 // BWT[i] = S[SA[i] - 1]
                 if i == 0 { cast(0).unwrap() } else { input[(i - 1) as usize] }
             }).collect()

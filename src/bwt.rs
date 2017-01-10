@@ -2,14 +2,14 @@ use bincode::SizeLimit;
 use bincode::rustc_serialize as serializer;
 use fillings::BitsVec;
 use num_traits::{Num, NumCast, cast};
-use sa::{Output, suffix_array_or_bwt};
+use sa::{Output, suffix_array_};
 
 use std::fs::File;
 use std::path::Path;
 
 // Generate the BWT of input data (calls the given function with the BWT data as it's generated)
 pub fn bwt(input: Vec<u8>) -> Vec<u8> {
-    match suffix_array_or_bwt(input, /* generate bwt */ true) {
+    match suffix_array_(input, 0, /* generate bwt */ true) {
         Output::BWT(v) => v,
         _ => unreachable!(),
     }
