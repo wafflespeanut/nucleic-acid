@@ -1,7 +1,8 @@
 use bincode::SizeLimit;
 use bincode::rustc_serialize as serializer;
 use fillings::BitsVec;
-use sa::{Output, insert, suffix_array_or_bwt};
+use num_traits::{Num, NumCast, cast};
+use sa::{Output, suffix_array_or_bwt};
 
 use std::fs::File;
 use std::path::Path;
@@ -12,6 +13,20 @@ pub fn bwt(input: Vec<u8>) -> Vec<u8> {
         Output::BWT(v) => v,
         _ => unreachable!(),
     }
+}
+
+// Insert (or) Increment a counter at an index
+fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
+    where T: Num + NumCast + PartialOrd + Copy
+{
+    let idx = cast(value).unwrap();
+    if vec.len() <= idx {
+        vec.extend_with_element(idx + 1, 0);
+    }
+
+    let old = vec.get(idx);
+    vec.set(idx, old + 1);
+    old + 1
 }
 
 // Takes a frequency map of bytes and generates the index of first occurrence

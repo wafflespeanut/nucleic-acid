@@ -1,5 +1,4 @@
 use bit_vec::BitVec;
-use fillings::BitsVec;
 use num_traits::{Num, NumCast, cast};
 use rand::{self, Rng};
 use rustc_serialize::{Encodable, Decodable};
@@ -77,21 +76,8 @@ fn is_equal_lms<T>(input: &[T], lms_map: &BitVec, j: usize, k: usize) -> bool
     false
 }
 
-// Increment the counter at an index
-pub fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
-    where T: Num + NumCast + PartialOrd + Copy
-{
-    let idx = cast(value).unwrap();
-    if vec.len() <= idx {
-        vec.extend_with_element(idx + 1, 0);
-    }
-
-    let old = vec.get(idx);
-    vec.set(idx, old + 1);
-    old + 1
-}
-
-pub fn insert_vec<T>(vec: &mut Vec<u32>, value: T) -> u32
+// Insert (or) Increment a counter at an index
+fn insert_vec<T>(vec: &mut Vec<u32>, value: T) -> u32
     where T: Num + NumCast + PartialOrd + Copy
 {
     let idx = cast(value).unwrap();
@@ -132,11 +118,6 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
 
     let mut type_map = BitVec::from_elem(length + 1, false);    // `false` for S-type and `true` for L-type
     let mut lms_map = BitVec::from_elem(length + 1, false);     // LMS type
-
-    // We'll be adding the frequencies, so input.len() would be the worst case
-    // (i.e., same character throughout the string)
-    let input_marker = length.next_power_of_two() - 1;
-    let input_bits = input_marker.count_ones() as usize;
     let mut bucket_sizes = Vec::new();      // byte frequency (HashMap will be a killer in recursions)
 
     lms_map.set(length, true);          // null byte
@@ -211,8 +192,8 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
         // Approx SA is no longer needed (it'll be dropped when it goes out of scope)
         let mut approx_sa = approx_sa;
         let mut last_idx = approx_sa[0] as usize;
-        let mut lms_vec = BitsVec::with_elements(input_bits, length + 1, length_32);
-        lms_vec.set(last_idx, 0);
+        let mut lms_vec = vec![length_32; length + 1];
+        lms_vec[last_idx] = 0;
 
         for count in approx_sa.drain(1..) {
             let idx = if count == MARKER { length } else { count as usize };
@@ -225,7 +206,7 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
             }
 
             last_idx = idx;
-            lms_vec.set(idx, label);
+            lms_vec[idx] = label;
         }
 
         lms_vec
@@ -234,19 +215,19 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
     drop(lms_map);
 
     // ... and filter the unnecessary bytes
-    let lms_bits = (lms_bytes.len().next_power_of_two() - 1).count_ones() as usize;
-    let mut summary_index = BitsVec::new(lms_bits);
-    for (i, b) in lms_bytes.iter().enumerate() {
-        if b != length_32 {
-            summary_index.push(i);
+    let summary_index = lms_bytes.iter().enumerate().filter_map(|(i, b)| {
+        if *b == length_32 {
+            None
+        } else {
+            Some(i)
         }
-    }
+    }).collect::<Vec<_>>();
 
     // 6. Build the final SA
     let mut final_sa = {
         let summary_sa = if label + 1 < summary_index.len() as u32 {
             // recursion (we don't have enough labels - multiple LMS substrings are same)
-            let mapped = summary_index.iter().map(|i| lms_bytes.get(i)).collect::<Vec<_>>();
+            let mapped = summary_index.iter().map(|i| lms_bytes[*i]).collect::<Vec<_>>();
             drop(lms_bytes);
             match suffix_array_(mapped, level + 1, name, bwt) {
                 Output::SA(v) => v,
@@ -256,7 +237,7 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
             let mut sum_sa = vec![0; summary_index.len() + 1];
             sum_sa[0] = summary_index.len() as u32;
             for (i, val) in summary_index.iter().enumerate() {
-                let idx = lms_bytes.get(val) as usize;
+                let idx = lms_bytes[*val] as usize;
                 sum_sa[idx + 1] = i as u32;
             }
 
@@ -267,7 +248,7 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
         let mut bucket_tails = bucket_tails.clone();
         let mut suffix_idx = vec![MARKER; length + 1];
         for i in (2..summary_sa.len()).rev() {
-            let idx = summary_index.get(summary_sa[i] as usize);
+            let idx = summary_index[summary_sa[i] as usize];
             let bucket_idx: usize = cast(input[idx]).unwrap();
             let bucket_value = bucket_tails[bucket_idx];
             suffix_idx[bucket_value as usize] = idx as u32;
@@ -277,6 +258,8 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
         suffix_idx[0] = length_32;
         suffix_idx
     };
+
+    drop(summary_index);
 
     // ... and sort it one last time
     induced_sort_large(&input, &mut final_sa, bucket_heads, &type_map);
