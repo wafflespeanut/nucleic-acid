@@ -1,6 +1,5 @@
 use bit_vec::BitVec;
 use num_traits::{Num, NumCast, cast};
-use rand::{self, Rng};
 use rustc_serialize::{Encodable, Decodable};
 
 use std::u32;
@@ -104,13 +103,12 @@ pub fn suffix_array(input: Vec<u8>) -> Vec<u32> {
 pub fn suffix_array_or_bwt<T>(input: Vec<T>, bwt: bool) -> Output<T>
     where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
 {
-    let name = rand::thread_rng().gen_ascii_chars().take(10).collect::<String>();
-    suffix_array_(input, 0, &name, bwt)
+    suffix_array_(input, 0, bwt)
 }
 
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Output<T>
+fn suffix_array_<T>(input: Vec<T>, level: usize, bwt: bool) -> Output<T>
     where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
 {
     let length = input.len();
@@ -229,7 +227,7 @@ fn suffix_array_<T>(input: Vec<T>, level: usize, name: &str, bwt: bool) -> Outpu
             // recursion (we don't have enough labels - multiple LMS substrings are same)
             let mapped = summary_index.iter().map(|i| lms_bytes[*i]).collect::<Vec<_>>();
             drop(lms_bytes);
-            match suffix_array_(mapped, level + 1, name, bwt) {
+            match suffix_array_(mapped, level + 1, bwt) {
                 Output::SA(v) => v,
                 _ => unreachable!(),
             }

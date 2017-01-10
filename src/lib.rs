@@ -2,7 +2,6 @@ extern crate bincode;
 extern crate bit_vec;
 extern crate fillings;
 extern crate num_traits;
-extern crate rand;
 extern crate rustc_serialize;
 
 mod bwt;
