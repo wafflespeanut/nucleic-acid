@@ -76,7 +76,7 @@ fn is_equal_lms<T>(input: &[T], lms_map: &BitVec, j: usize, k: usize) -> bool
 }
 
 // Insert (or) Increment a counter at an index
-fn insert_vec<T>(vec: &mut Vec<u32>, value: T) -> u32
+pub fn insert<T>(vec: &mut Vec<u32>, value: T) -> u32
     where T: Num + NumCast + PartialOrd + Copy
 {
     let idx = cast(value).unwrap();
@@ -114,12 +114,12 @@ pub fn suffix_array_<T>(input: Vec<T>, level: usize, bwt: bool) -> Output<T>
 
     lms_map.set(length, true);          // null byte
     type_map.set(length - 1, true);     // should be L-type
-    insert_vec(&mut bucket_sizes, input[length - 1]);
+    insert(&mut bucket_sizes, input[length - 1]);
 
     // 1. Group the bytes into S-type or L-type (also mark LMS types)
     for i in (0..length - 1).rev() {
         let prev_type = type_map.get(i + 1).unwrap();
-        insert_vec(&mut bucket_sizes, input[i]);
+        insert(&mut bucket_sizes, input[i]);
 
         if input[i] > input[i + 1] ||
            (input[i] == input[i + 1] && prev_type /* L-type */) {

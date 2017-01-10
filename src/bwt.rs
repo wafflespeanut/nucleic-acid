@@ -1,8 +1,6 @@
 use bincode::SizeLimit;
 use bincode::rustc_serialize as serializer;
-use fillings::BitsVec;
-use num_traits::{Num, NumCast, cast};
-use sa::{Output, suffix_array_};
+use sa::{Output, insert, suffix_array_};
 
 use std::fs::File;
 use std::path::Path;
@@ -15,27 +13,13 @@ pub fn bwt(input: Vec<u8>) -> Vec<u8> {
     }
 }
 
-// Insert (or) Increment a counter at an index
-fn insert<T>(vec: &mut BitsVec<usize>, value: T) -> usize
-    where T: Num + NumCast + PartialOrd + Copy
-{
-    let idx = cast(value).unwrap();
-    if vec.len() <= idx {
-        vec.extend_with_element(idx + 1, 0);
-    }
-
-    let old = vec.get(idx);
-    vec.set(idx, old + 1);
-    old + 1
-}
-
 // Takes a frequency map of bytes and generates the index of first occurrence
 // of each byte.
-fn generate_occurrence_index(map: &mut BitsVec<usize>) {
+fn generate_occurrence_index(map: &mut Vec<u32>) {
     let mut idx = 0;
     for i in 0..map.len() {
-        let c = map.get(i);
-        map.set(i, idx);
+        let c = map[i];
+        map[i] = idx;
         idx += c;
     }
 }
@@ -43,8 +27,7 @@ fn generate_occurrence_index(map: &mut BitsVec<usize>) {
 // Invert the BWT data (generate the original data)
 pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
     // get the byte distribution
-    let bits = (input.len().next_power_of_two() - 1).count_ones() as usize;
-    let mut map = BitsVec::new(bits);
+    let mut map = Vec::new();
     for i in &input {
         insert(&mut map, *i);
     }
@@ -54,9 +37,10 @@ pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
     // generate the LF vector
     let mut lf = vec![0; input.len()];
     for (i, c) in input.iter().enumerate() {
-        let val = map.get(*c as usize);
+        let byte = *c as usize;
+        let val = map[byte];
         lf[i] = val;
-        map.set(*c as usize, val + 1);
+        map[byte] = val + 1;
     }
 
     let mut idx = 0;
@@ -64,7 +48,7 @@ pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
     let mut output = vec![0; input.len()];
     for i in (0..(input.len() - 1)).rev() {
         output[i] = input[idx];
-        idx = lf[idx];
+        idx = lf[idx] as usize;
     }
 
     output.pop();
@@ -76,27 +60,25 @@ pub struct FMIndex {
     // BW-transformed data
     data: Vec<u8>,
     // forward frequency of each character in the BWT data
-    cache: BitsVec<usize>,
+    cache: Vec<u32>,
     // incremental character frequencies
-    occ_map: BitsVec<usize>,
+    occ_map: Vec<u32>,
     // LF-mapping for backward search
-    lf_vec: BitsVec<usize>,
+    lf_vec: Vec<u32>,
 }
 
 impl FMIndex {
     pub fn new(data: Vec<u8>) -> FMIndex {
         let mut idx = 0;
         let length = data.len();
-        // worst case (all bytes are the same)
-        let bits = (length.next_power_of_two() - 1).count_ones() as usize;
         let bwt_data = bwt(data);
 
-        let mut map = BitsVec::new(bits);
-        let mut count = BitsVec::with_elements(bits, length + 1, 0);
+        let mut map = Vec::new();
+        let mut count = vec![0u32; length + 1];
         // generate the frequency map and forward frequency vector from BWT
         for i in &bwt_data {
             let value = insert(&mut map, *i);
-            count.set(idx, value);
+            count[idx] = value;
             idx += 1;
         }
 
@@ -107,20 +89,20 @@ impl FMIndex {
         // generate the LF vector (just like inverting the BWT)
         for (i, c) in bwt_data.iter().enumerate() {
             let idx = *c as usize;
-            let val = lf_occ_map.get(idx);
-            lf_vec.set(i, val);
-            lf_occ_map.set(idx, val + 1);
+            let val = lf_occ_map[idx];
+            lf_vec[i] = val;
+            lf_occ_map[idx] = val + 1;
         }
 
         let mut i = 0;
-        let mut counter = bwt_data.len();
+        let mut counter = bwt_data.len() as u32;
         // Only difference is that we replace the LF indices with the lengths of prefix
         // from a particular position (in other words, the number of times
         // it would take us to get to the start of string).
         for _ in 0..bwt_data.len() {
-            let next = lf_vec.get(i);
-            lf_vec.set(i, counter);
-            i = next;
+            let next = lf_vec[i];
+            lf_vec[i] = counter;
+            i = next as usize;
             counter -= 1;
         }
 
@@ -144,15 +126,15 @@ impl FMIndex {
 
     // Get the index of the nearest occurrence of a character in the BWT data
     fn nearest(&self, idx: usize, ch: u8) -> usize {
-        let mut result = self.occ_map.get(ch as usize);
-        if result > 0 {
-            result += (0..idx).rev()
-                              .find(|&i| self.data[i] == ch)
-                              .map(|i| self.cache.get(i) as usize)
-                              .unwrap_or(0);
+        match self.occ_map.get(ch as usize) {
+            Some(res) => {
+                *res as usize + (0..idx).rev()
+                                        .find(|&i| self.data[i] == ch)
+                                        .map(|i| self.cache[i] as usize)
+                                        .unwrap_or(0)
+            },
+            None => 0,
         }
-
-        result
     }
 
     // Find the positions of occurrences of sub-string in the original data.
@@ -168,7 +150,7 @@ impl FMIndex {
             let i = self.nearest(idx, self.data[idx]);
             // wrap around on overflow, which usually occurs only for the
             // last index of LF vector (or the first index of original string)
-            self.lf_vec.get(i) % self.data.len()
+            self.lf_vec[i] as usize % self.data.len()
         }).collect()
     }
 }
