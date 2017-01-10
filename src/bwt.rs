@@ -86,13 +86,13 @@ pub struct FMIndex {
 impl FMIndex {
     pub fn new(data: Vec<u8>) -> FMIndex {
         let mut idx = 0;
-        // worst case (all bytes are distinct)
-        let bits = (data.len().next_power_of_two() - 1).count_ones() as usize;
-        let mut map = BitsVec::new(bits);
-        let mut count = BitsVec::with_elements(bits, data.len() + 1, 0);
-        let mut lf_vec = count.clone();
+        let length = data.len();
+        // worst case (all bytes are the same)
+        let bits = (length.next_power_of_two() - 1).count_ones() as usize;
         let bwt_data = bwt(data);
 
+        let mut map = BitsVec::new(bits);
+        let mut count = BitsVec::with_elements(bits, length + 1, 0);
         // generate the frequency map and forward frequency vector from BWT
         for i in &bwt_data {
             let value = insert(&mut map, *i);
@@ -102,6 +102,7 @@ impl FMIndex {
 
         generate_occurrence_index(&mut map);
 
+        let mut lf_vec = count.clone();
         let mut lf_occ_map = map.clone();
         // generate the LF vector (just like inverting the BWT)
         for (i, c) in bwt_data.iter().enumerate() {
