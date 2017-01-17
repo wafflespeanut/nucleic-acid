@@ -6,7 +6,7 @@ use std::fs::File;
 use std::path::Path;
 
 // Generate the BWT of input data (calls the given function with the BWT data as it's generated)
-pub fn bwt(input: Vec<u8>) -> Vec<u8> {
+pub fn bwt(input: &[u8]) -> Vec<u8> {
     match suffix_array_(input, 0, /* generate bwt */ true) {
         Output::BWT(v) => v,
         _ => unreachable!(),
@@ -25,10 +25,10 @@ fn generate_occurrence_index(map: &mut Vec<u32>) {
 }
 
 // Invert the BWT data (generate the original data)
-pub fn ibwt(input: Vec<u8>) -> Vec<u8> {
+pub fn ibwt(input: &[u8]) -> Vec<u8> {
     // get the byte distribution
     let mut map = Vec::new();
-    for i in &input {
+    for i in input {
         insert(&mut map, *i);
     }
 
@@ -68,13 +68,14 @@ pub struct FMIndex {
 }
 
 impl FMIndex {
-    pub fn new(data: Vec<u8>) -> FMIndex {
-        let mut idx = 0;
-        let length = data.len();
-        let bwt_data = bwt(data);
+    pub fn new(data: &[u8]) -> FMIndex {
+        FMIndex::new_from_bwt(bwt(data))
+    }
 
+    pub fn new_from_bwt(bwt_data: Vec<u8>) -> FMIndex {
         let mut map = Vec::new();
-        let mut count = vec![0u32; length + 1];
+        let mut count = vec![0u32; bwt_data.len()];
+        let mut idx = 0;
         // generate the frequency map and forward frequency vector from BWT
         for i in &bwt_data {
             let value = insert(&mut map, *i);
@@ -162,8 +163,8 @@ mod tests {
     #[test]
     fn test_bwt_and_ibwt() {
         let text = String::from("ATCTAGGAGATCTGAATCTAGTTCAACTAGCTAGATCTAGAGACAGCTAA");
-        let bw = bwt(text.as_bytes().to_owned());
-        let ibw = ibwt(bw.clone());
+        let bw = bwt(&text.as_bytes().to_owned());
+        let ibw = ibwt(&bw);
         assert_eq!(String::from("AATCGGAGTTGCTTTG\u{0}AGTAGTGATTTTAAGAAAAAACCCCCCTAAAACG"),
                    String::from_utf8(bw).unwrap());
         assert_eq!(text, String::from_utf8(ibw).unwrap());
@@ -172,7 +173,7 @@ mod tests {
     #[test]
     fn test_fm_index() {
         let text = String::from("GCGTGCCCAGGGCACTGCCGCTGCAGGCGTAGGCATCGCATCACACGCGT");
-        let index = FMIndex::new(text.as_bytes().to_owned());
+        let index = FMIndex::new(&text.as_bytes().to_owned());
         let mut result = index.search("TG");
         result.sort();
         assert_eq!(result, vec![3, 15, 21]);

@@ -93,7 +93,7 @@ pub enum Output<T: Num + NumCast + PartialOrd + Copy> {
     SA(Vec<u32>),
 }
 
-pub fn suffix_array(input: Vec<u8>) -> Vec<u32> {
+pub fn suffix_array(input: &[u8]) -> Vec<u32> {
     match suffix_array_(input, 0, false) {
         Output::SA(v) => v,
         _ => unreachable!(),
@@ -102,7 +102,7 @@ pub fn suffix_array(input: Vec<u8>) -> Vec<u32> {
 
 // Generates a suffix array and sorts them using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-pub fn suffix_array_<T>(input: Vec<T>, level: usize, bwt: bool) -> Output<T>
+pub fn suffix_array_<T>(input: &[T], level: usize, bwt: bool) -> Output<T>
     where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
 {
     let length = input.len();
@@ -225,8 +225,11 @@ pub fn suffix_array_<T>(input: Vec<T>, level: usize, bwt: bool) -> Output<T>
     let mut final_sa = {
         let summary_sa = if label + 1 < summary_len {
             // recursion (we don't have enough labels - multiple LMS substrings are same)
-            match suffix_array_(summary_index_val, level + 1, bwt) {
-                Output::SA(v) => v,
+            match suffix_array_(&summary_index_val, level + 1, bwt) {
+                Output::SA(array) => {
+                    drop(summary_index_val);
+                    array
+                },
                 _ => unreachable!(),
             }
         } else {
@@ -279,7 +282,7 @@ mod tests {
     #[test]
     fn test_suffix_array() {
         let text = b"ATCGAATCGAGAGATCATCGAATCGAGATCATCGAAATCATCGAATCGTC";
-        let sa = suffix_array(text.iter().map(|i| *i).collect::<Vec<_>>());
+        let sa = suffix_array(&text.iter().map(|i| *i).collect::<Vec<_>>());
 
         let mut rotations = (0..text.len()).map(|i| &text[i as usize..]).collect::<Vec<_>>();
         rotations.sort();

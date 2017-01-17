@@ -35,20 +35,20 @@ fn bench_sort_rotations_1000_random_values(b: &mut Bencher) {
 #[bench]
 fn bench_suffix_array_1000_random_values(b: &mut Bencher) {
     b.iter(|| {
-        suffix_array(DATA.clone());
+        suffix_array(&DATA);
     })
 }
 
 #[bench]
 fn bench_fm_index_1000_random_values_constructor(b: &mut Bencher) {
     b.iter(|| {
-        FMIndex::new(DATA.clone());
+        FMIndex::new(&DATA);
     })
 }
 
 #[bench]
 fn bench_fm_index_1000_random_values_get_100_chars(b: &mut Bencher) {
-    let index = FMIndex::new(DATA.clone());
+    let index = FMIndex::new(&DATA);
     b.iter(|| {
         index.search(&QUERY);
     })
