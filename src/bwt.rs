@@ -1,9 +1,4 @@
-use bincode::SizeLimit;
-use bincode::rustc_serialize as serializer;
 use sa::{insert, suffix_array};
-
-use std::fs::File;
-use std::path::Path;
 
 // Generate the BWT of input data (calls the given function with the BWT data as it's generated)
 pub fn bwt(input: &[u8]) -> Vec<u8> {
@@ -115,16 +110,6 @@ impl FMIndex {
         }
     }
 
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<FMIndex, ()> {
-        let mut fd = try!(File::open(path).map_err(|_| ()));
-        serializer::decode_from(&mut fd, SizeLimit::Infinite).map_err(|_| ())
-    }
-
-    pub fn dump<P: AsRef<Path>>(&self, path: P) -> Result<(), ()> {
-        let mut fd = try!(File::create(path).map_err(|_| ()));
-        serializer::encode_into(&self, &mut fd, SizeLimit::Infinite).map_err(|_| ())
-    }
-
     // Get the index of the nearest occurrence of a character in the BWT data
     fn nearest(&self, idx: usize, ch: u8) -> usize {
         match self.occ_map.get(ch as usize) {
@@ -173,7 +158,7 @@ mod tests {
     #[test]
     fn test_fm_index() {
         let text = String::from("GCGTGCCCAGGGCACTGCCGCTGCAGGCGTAGGCATCGCATCACACGCGT");
-        let index = FMIndex::new_from_bwt(&text.as_bytes().to_owned());
+        let index = FMIndex::new(&text.as_bytes().to_owned());
         let mut result = index.search("TG");
         result.sort();
         assert_eq!(result, vec![3, 15, 21]);
