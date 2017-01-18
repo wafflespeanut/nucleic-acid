@@ -1,16 +1,16 @@
 use bincode::SizeLimit;
 use bincode::rustc_serialize as serializer;
-use sa::{Output, insert, suffix_array_};
+use sa::{insert, suffix_array};
 
 use std::fs::File;
 use std::path::Path;
 
 // Generate the BWT of input data (calls the given function with the BWT data as it's generated)
 pub fn bwt(input: &[u8]) -> Vec<u8> {
-    match suffix_array_(input, 0, /* generate bwt */ true) {
-        Output::BWT(v) => v,
-        _ => unreachable!(),
-    }
+    suffix_array(input).into_iter().map(|i| {
+        // BWT[i] = S[SA[i] - 1]
+        if i == 0 { 0 } else { input[(i - 1) as usize] }
+    }).collect()
 }
 
 // Takes a frequency map of bytes and generates the index of first occurrence
@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn test_fm_index() {
         let text = String::from("GCGTGCCCAGGGCACTGCCGCTGCAGGCGTAGGCATCGCATCACACGCGT");
-        let index = FMIndex::new(&text.as_bytes().to_owned());
+        let index = FMIndex::new_from_bwt(&text.as_bytes().to_owned());
         let mut result = index.search("TG");
         result.sort();
         assert_eq!(result, vec![3, 15, 21]);

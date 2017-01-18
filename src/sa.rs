@@ -88,21 +88,9 @@ pub fn insert<T>(vec: &mut Vec<u32>, value: T) -> u32
     vec[idx]
 }
 
-pub enum Output<T: Num + NumCast + PartialOrd + Copy> {
-    BWT(Vec<T>),
-    SA(Vec<u32>),
-}
-
-pub fn suffix_array(input: &[u8]) -> Vec<u32> {
-    match suffix_array_(input, 0, false) {
-        Output::SA(v) => v,
-        _ => unreachable!(),
-    }
-}
-
-// Generates a suffix array and sorts them using the "induced sorting" method
+// Generates a suffix array using the "induced sorting" method
 // (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
-pub fn suffix_array_<T>(input: &[T], level: usize, bwt: bool) -> Output<T>
+pub fn suffix_array<T>(input: &[T]) -> Vec<u32>
     where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
 {
     let length = input.len();
@@ -225,13 +213,9 @@ pub fn suffix_array_<T>(input: &[T], level: usize, bwt: bool) -> Output<T>
     let mut final_sa = {
         let summary_sa = if label + 1 < summary_len {
             // recursion (we don't have enough labels - multiple LMS substrings are same)
-            match suffix_array_(&summary_index_val, level + 1, bwt) {
-                Output::SA(array) => {
-                    drop(summary_index_val);
-                    array
-                },
-                _ => unreachable!(),
-            }
+            let array = suffix_array(&summary_index_val);
+            drop(summary_index_val);
+            array
         } else {
             let summary_index = summary_index_val;
             let mut sum_sa = vec![0u32; summary_index.len() + 1];
@@ -263,16 +247,7 @@ pub fn suffix_array_<T>(input: &[T], level: usize, bwt: bool) -> Output<T>
     induced_sort_large(&input, &mut final_sa, bucket_heads, &type_map);
     induced_sort_small(&input, &mut final_sa, bucket_tails, &type_map);
 
-    if level == 0 && bwt {      // peek of memory consumption
-        Output::BWT(
-            final_sa.drain(..).map(|i| {
-                // BWT[i] = S[SA[i] - 1]
-                if i == 0 { cast(0).unwrap() } else { input[(i - 1) as usize] }
-            }).collect()
-        )
-    } else {
-        Output::SA(final_sa)
-    }
+    final_sa        // peek of memory consumption
 }
 
 #[cfg(test)]
