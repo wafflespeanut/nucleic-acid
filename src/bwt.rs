@@ -113,13 +113,13 @@ impl FMIndex {
     // Get the index of the nearest occurrence of a character in the BWT data
     fn nearest(&self, idx: usize, ch: u8) -> usize {
         match self.occ_map.get(ch as usize) {
-            Some(res) => {
+            Some(res) if *res > 0 => {
                 *res as usize + (0..idx).rev()
                                         .find(|&i| self.data[i] == ch)
                                         .map(|i| self.cache[i] as usize)
                                         .unwrap_or(0)
             },
-            None => 0,
+            _ => 0,
         }
     }
 
