@@ -123,8 +123,7 @@ impl FMIndex {
         }
     }
 
-    // Find the positions of occurrences of sub-string in the original data.
-    pub fn search(&self, query: &str) -> Vec<usize> {
+    fn get_range(&self, query: &str) -> Option<(usize, usize)> {
         let mut top = 0;
         let mut bottom = self.data.len();
         for ch in query.as_bytes().iter().rev() {
@@ -132,12 +131,32 @@ impl FMIndex {
             bottom = self.nearest(bottom, *ch);
         }
 
-        (top..bottom).map(|idx| {
-            let i = self.nearest(idx, self.data[idx]);
-            // wrap around on overflow, which usually occurs only for the
-            // last index of LF vector (or the first index of original string)
-            self.lf_vec[i] as usize % self.data.len()
-        }).collect()
+        if top >= bottom {
+            None
+        } else {
+            Some((top, bottom))
+        }
+    }
+
+    // Count the occurrences of sub-string in the original data
+    pub fn count(&self, query: &str) -> usize {
+        match self.get_range(query) {
+            Some((top, bottom)) => bottom - top,
+            None => 0,
+        }
+    }
+
+    // Find the positions of occurrences of sub-string in the original data.
+    pub fn search(&self, query: &str) -> Vec<usize> {
+        match self.get_range(query) {
+            Some((top, bottom)) =>  (top..bottom).map(|idx| {
+                let i = self.nearest(idx, self.data[idx]);
+                // wrap around on overflow, which usually occurs only for the
+                // last index of LF vector (or the first index of original string)
+                self.lf_vec[i] as usize % self.data.len()
+            }).collect(),
+            None => Vec::new(),
+        }
     }
 }
 
@@ -159,6 +178,7 @@ mod tests {
     fn test_fm_index() {
         let text = String::from("GCGTGCCCAGGGCACTGCCGCTGCAGGCGTAGGCATCGCATCACACGCGT");
         let index = FMIndex::new(&text.as_bytes().to_owned());
+        assert_eq!(0, index.count("CCCCC"));
         let mut result = index.search("TG");
         result.sort();
         assert_eq!(result, vec![3, 15, 21]);
