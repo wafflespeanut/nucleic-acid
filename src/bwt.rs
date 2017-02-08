@@ -12,6 +12,7 @@ pub fn bwt(input: &[u8]) -> Vec<u8> {
 // of each byte.
 fn generate_occurrence_index(map: &mut Vec<u32>) {
     let mut idx = 0;
+
     for i in 0..map.len() {
         let c = map[i];
         map[i] = idx;
@@ -129,6 +130,9 @@ impl FMIndex {
         for ch in query.as_bytes().iter().rev() {
             top = self.nearest(top, *ch);
             bottom = self.nearest(bottom, *ch);
+            if top >= bottom {
+                return None
+            }
         }
 
         if top >= bottom {
