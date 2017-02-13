@@ -2,12 +2,10 @@ use bit_vec::BitVec;
 use num_traits::{Num, NumCast, cast};
 use rustc_serialize::{Encodable, Decodable};
 
-use std::u32;
-
 // Prefer this for marking, instead of Option<u32> (as it requires additional byte of memory)
 // We could use usize here, but it will consume a great deal of memory. Keeping that aside, even
 // the size of the giant human genome is only 70% of this value (~3 billion bases). So, we're good...
-const MARKER: u32 = u32::MAX;
+use std::u32::MAX as MARKER;
 
 fn induced_sort_large<T>(input: &[T], approx_sa: &mut [u32],
                          mut bucket_heads: Vec<u32>, type_map: &BitVec)
@@ -111,7 +109,7 @@ pub fn suffix_array<T>(input: &[T]) -> Vec<u32>
 
         if input[i] > input[i + 1] ||
            (input[i] == input[i + 1] && prev_type /* L-type */) {
-            if !prev_type /* S-type */ {
+            if !prev_type {     // S-type
                 lms_map.set(i + 1, true);
             }
 

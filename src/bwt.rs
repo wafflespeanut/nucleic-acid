@@ -86,17 +86,18 @@ impl FMIndex {
         // generate the LF vector (just like inverting the BWT)
         for (i, c) in bwt_data.iter().enumerate() {
             let idx = *c as usize;
-            let val = lf_occ_map[idx];
-            lf_vec[i] = val;
-            lf_occ_map[idx] = val + 1;
+            lf_vec[i] = lf_occ_map[idx];
+            lf_occ_map[idx] += 1;
         }
 
-        let mut i = 0;
-        let mut counter = bwt_data.len() as u32;
+        let mut i = lf_vec[0] as usize;
+        lf_vec[0] = 0;
+        let mut counter = bwt_data.len() as u32 - 1;
+
         // Only difference is that we replace the LF indices with the lengths of prefix
         // from a particular position (in other words, the number of times
         // it would take us to get to the start of string).
-        for _ in 0..bwt_data.len() {
+        for _ in 0..(bwt_data.len() - 1) {
             let next = lf_vec[i];
             lf_vec[i] = counter;
             i = next as usize;
@@ -155,9 +156,7 @@ impl FMIndex {
         match self.get_range(query) {
             Some((top, bottom)) =>  (top..bottom).map(|idx| {
                 let i = self.nearest(idx, self.data[idx]);
-                // wrap around on overflow, which usually occurs only for the
-                // last index of LF vector (or the first index of original string)
-                self.lf_vec[i] as usize % self.data.len()
+                self.lf_vec[i] as usize
             }).collect(),
             None => Vec::new(),
         }
