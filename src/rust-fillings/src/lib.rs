@@ -7,8 +7,39 @@ use std::mem;
 use std::ops::Range;
 use std::usize;
 
+/// A trait for representing types as `usize` (useful for enums).
+///
+/// Note that this should be implemented for types that need to be passed to `BitsVec`.
+/// This is implemented for integer types, `bool` and `char` by default.
+///
+/// ``` rust
+/// enum Foo {
+///     One,
+///     Two,
+/// }
+///
+/// impl ReprUsize for Foo {
+///     fn into_usize(self) -> usize {
+///         match self {
+///             Foo::One => 0,
+///             Foo::Two => 1,
+///         }
+///     }
+///
+///    fn from_usze(i: usize) -> Foo {
+///         match i {
+///             0 => Foo::One,
+///             1 => Foo::Two,
+///             _ => unimplemented!(),
+///         }
+///     }
+/// }
+/// ```
+///
 pub trait ReprUsize {
+    /// Convert the value back from `usize`
     fn from_usize(usize) -> Self;
+    /// Convert the value into an `usize`
     fn into_usize(self) -> usize;
 }
 
@@ -47,6 +78,49 @@ impl_predefined_type!(i64);
 impl_predefined_type!(isize);
 
 #[derive(Clone, Hash, RustcEncodable, RustcDecodable)]
+/// A vector to hold values that have a known bit range.
+///
+/// For example, DNA nucleotides don't need 8 bits to represent them. We know they
+/// only have four possible values, so 2 bits would be enough.
+///
+/// ``` rust
+/// extern crate helix;
+///
+/// use helix::{BitsVec, ReprUsize};
+/// use std::mem;
+///
+/// #[derive(Clone, Copy, Debug)]
+/// #[repr(usize)]
+/// enum Nucleotide {
+///     Adenine,
+///     Thymine,
+///     Guanine,
+///     Cytosine,
+/// }
+///
+/// impl ReprUsize for Nucleotide {
+///     fn from_usize(i: usize) -> Self {
+///         assert!(i <= 3, "expected vales in the range [0, 3]");
+///         unsafe { mem::transmute(i) }
+///     }
+///
+///     fn into_usize(self) -> usize {
+///         self as usize
+///     }
+/// }
+///
+/// fn main() {
+///     let vec = BitsVec::with_elements(2, 100, Nucleotide::Adenine);
+///     assert!(vec.len() == 100);
+///     // depends on the architecture (since BitsVec uses Vec<usize> inside)
+///     assert!(vec.inner_len() == 2 || vec.inner_len() == 4);
+/// }
+///
+/// ```
+///
+/// The human genome has ~3 billion bases (that's 3 GB). Using 8 bits for each of them would be
+/// a waste of space. This representation reduces the memory consumed by a factor of 6.
+///
 pub struct BitsVec<T: ReprUsize> {
     inner: Vec<usize>,
     units: usize,
@@ -57,6 +131,7 @@ pub struct BitsVec<T: ReprUsize> {
 }
 
 impl<T: ReprUsize> BitsVec<T> {
+    /// Create a new vector that can hold values no larger than the specified `bits`
     pub fn new(bits: usize) -> BitsVec<T> {
         let max = usize::MAX.count_ones() as usize;
         // We can store more bits, but then we might need BigInt to get them out!
@@ -72,12 +147,15 @@ impl<T: ReprUsize> BitsVec<T> {
         }
     }
 
+    /// Creates a new vector that can hold the specified bits (atmost) and has capacity
+    /// for "N" additional elements.
     pub fn with_capacity(bits: usize, capacity: usize) -> BitsVec<T> {
         let mut vec = BitsVec::new(bits);
         vec.reserve(capacity);
         vec
     }
 
+    /// Push a value into the vector.
     pub fn push(&mut self, value: T) {
         let mut value = value.into_usize();
         assert!(value >> self.bits == 0,
@@ -103,6 +181,8 @@ impl<T: ReprUsize> BitsVec<T> {
         self.units += 1;
     }
 
+    /// Get the value from an index in the vector. Note that this is similar to indexed getting,
+    /// and so it panics when the index is out of bounds. For the non-panicking version, use `checked_get`
     pub fn get(&self, i: usize) -> T {
         assert!(i < self.units, "[get] index out of bounds ({} >= {})", i, self.units);
 
@@ -124,6 +204,7 @@ impl<T: ReprUsize> BitsVec<T> {
         }
     }
 
+    /// Returns `Some(T)` if the element exists at the given index or `None` if it doesn't.
     pub fn checked_get(&self, i: usize) -> Option<T> {
         if i >= self.units {
             return None
@@ -132,6 +213,8 @@ impl<T: ReprUsize> BitsVec<T> {
         Some(self.get(i))
     }
 
+    /// Set a value at the given index. Note that this is similar to indexed setting, and so it
+    /// panics when the index is out of bounds.
     pub fn set(&mut self, i: usize, value: T) {
         let value = value.into_usize();
         assert!(i < self.units, "[set] index out of bounds ({} >= {})", i, self.units);
@@ -162,6 +245,7 @@ impl<T: ReprUsize> BitsVec<T> {
         }
     }
 
+    /// Creates a vector consuming an iterator of elements.
     pub fn from_iter<I>(bits: usize, iterable: I) -> BitsVec<T>
         where I: Iterator<Item=T>
     {
@@ -173,22 +257,30 @@ impl<T: ReprUsize> BitsVec<T> {
         vec
     }
 
+    /// Returns the length of the vector. This only indicates the number of units it contains,
+    /// and not the length of the inner vector.
     pub fn len(&self) -> usize {
         self.units
     }
 
+    /// Returns `true` if the vector contains no values (or `false` otherwise).
     pub fn is_empty(&self) -> bool {
         self.units == 0
     }
 
+    /// Reserve space for "N" additional elements.
     pub fn reserve(&mut self, additional: usize) {
         self.inner.reserve(additional * self.bits / self.max_bits + 1);
     }
 
+    /// Shrink the inner vector's capacity to fit to its length. It does nothing more than
+    /// calling the same method in the inner vector.
     pub fn shrink_to_fit(&mut self) {
         self.inner.shrink_to_fit();
     }
 
+    /// Truncate the vector to the given length, removing the out-of-bound elements. Note that this
+    /// method panics when the length is greater than current length.
     pub fn truncate(&mut self, length: usize) {
         assert!(length < self.units, "length should be smaller for truncation ({} >= {})", length, self.units);
         self.units = length;
@@ -210,30 +302,39 @@ impl<T: ReprUsize> BitsVec<T> {
         }
     }
 
+    /// Clears the inner vector. Note that this is similar to calling `truncate` with zero.
     pub fn clear(&mut self) {
         self.truncate(0);
     }
 
+    /// Returns the length of the inner vector. Useful for measuring the memory consumption
+    /// of the elements.
     pub fn inner_len(&self) -> usize {
         self.inner.len()
     }
 
+    /// Creates an iterator over the elements. Note that unlike other iterators, this gives the elements
+    /// themselves, and not their references.
     pub fn iter(&self) -> Iter<T> {
         Iter { vec: self, range: 0..self.units }
     }
 
+    /// Creates an iterator consuming the vector.
     pub fn into_iter(self) -> IntoIter<T> {
         IntoIter { range: 0..self.units, vec: self }
     }
 }
 
 impl<T: ReprUsize + Clone> BitsVec<T> {
+    /// Creates a vector initialized with "N" copies of the given element.
     pub fn with_elements(bits: usize, length: usize, value: T) -> BitsVec<T> {
         let mut vec = BitsVec::new(bits);
         vec.extend_with_element(length, value);
         vec
     }
 
+    /// Extends the vector to the specified length, filling additional values with the given element.
+    /// Note that this method panics when the specified length is shorter than the initial length.
     pub fn extend_with_element(&mut self, length: usize, value: T) {
         assert!(length > self.len(), "[extend] final length should be greater than the initial length");
         // Three phases (somewhat inefficient, using safe code and all, but much better than `push`)
@@ -277,6 +378,7 @@ impl<T: ReprUsize + Clone> BitsVec<T> {
 }
 
 impl<T: ReprUsize + PartialEq> BitsVec<T> {
+    /// Checks whether the vector contains the given element in O(n) time.
     pub fn contains(&self, element: &T) -> bool {
         self.iter().find(|ref i| i == &element).is_some()
     }
