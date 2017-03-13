@@ -1,3 +1,5 @@
+#![doc(html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+       html_favicon_url = "https://www.rust-lang.org/favicon.ico", html_root_url = ".")]
 extern crate rustc_serialize;
 
 use std::cmp;
@@ -26,7 +28,7 @@ use std::usize;
 ///         }
 ///     }
 ///
-///    fn from_usze(i: usize) -> Foo {
+///    fn from_usize(i: usize) -> Foo {
 ///         match i {
 ///             0 => Foo::One,
 ///             1 => Foo::Two,
