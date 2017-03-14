@@ -2,6 +2,13 @@
 name = "helix"
 version = "0.1.0"
 authors = ["Ravi Shankar <wafflespeanut@gmail.com>"]
+description = "Implementations of Suffix Array, Burrows-Wheeler Transform and FM-index"
+repository = "https://github.com/Wafflespeanut/rust-helix"
+documentation = "https://wafflespeanut.github.io/rust-helix/"
+readme = "README.md"
+license = "MIT"
+categories = ["algorithms", "data-structures", "science"]
+keywords = ["index", "bwt", "vector", "search"]
 
 [dependencies]
 num-traits = "0.1"
