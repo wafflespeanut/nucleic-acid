@@ -1,8 +1,8 @@
 #![feature(test)]
 extern crate test;
-extern crate fillings;
+extern crate helix;
 
-use fillings::BitsVec;
+use helix::BitsVec;
 use test::Bencher;
 
 #[bench]

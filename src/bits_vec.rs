@@ -1,7 +1,3 @@
-#![doc(html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "https://www.rust-lang.org/favicon.ico", html_root_url = ".")]
-extern crate rustc_serialize;
-
 use std::cmp;
 use std::fmt;
 use std::marker::PhantomData;
@@ -15,6 +11,8 @@ use std::usize;
 /// This is implemented for integer types, `bool` and `char` by default.
 ///
 /// ``` rust
+/// use helix::ReprUsize;
+///
 /// enum Foo {
 ///     One,
 ///     Two,
@@ -85,8 +83,6 @@ impl_predefined_type!(isize);
 /// only have four possible values, so 2 bits would be enough.
 ///
 /// ``` rust
-/// extern crate helix;
-///
 /// use helix::{BitsVec, ReprUsize};
 /// use std::mem;
 ///
@@ -113,7 +109,7 @@ impl_predefined_type!(isize);
 /// fn main() {
 ///     let vec = BitsVec::with_elements(2, 100, Nucleotide::Adenine);
 ///     assert!(vec.len() == 100);
-///     // depends on the architecture (since BitsVec uses Vec<usize> inside)
+///     // depends on the architecture (since BitsVec internally uses Vec<usize>)
 ///     assert!(vec.inner_len() == 2 || vec.inner_len() == 4);
 /// }
 ///

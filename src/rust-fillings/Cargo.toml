@@ -1,7 +1,0 @@
-[package]
-name = "fillings"
-version = "0.1.0"
-authors = ["Ravi Shankar <wafflespeanut@gmail.com>"]
-
-[dependencies]
-rustc-serialize = "0.3"

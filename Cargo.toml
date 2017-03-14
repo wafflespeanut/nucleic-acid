@@ -3,10 +3,6 @@ name = "helix"
 version = "0.1.0"
 authors = ["Ravi Shankar <wafflespeanut@gmail.com>"]
 
-[dependencies.fillings]
-path = "src/rust-fillings"
-version = "0.1"
-
 [dependencies]
 num-traits = "0.1"
 rustc-serialize = "0.3"

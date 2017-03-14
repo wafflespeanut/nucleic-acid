@@ -171,7 +171,7 @@ impl FMIndex {
         }
     }
 
-    /// Get the position of a character in the internal BWT data.
+    /// Get the nearest position of a character in the internal BWT data.
     ///
     /// The `count` and `search` methods rely on this method for finding occurrences.
     /// For example, we can do soemthing like this,
@@ -200,10 +200,10 @@ impl FMIndex {
     /// assert_eq!(vec![17, 10, 3], (top..bottom).map(|i| fm[i]).collect::<Vec<_>>());
     /// ```
     ///
-    /// This is backward searching. As you feed in the characters, `nearest` will give you a position
-    /// in the index. Once the range becomes invalid (which happens when the substring doesn't exist),
-    /// we can bail out. On the contrary, if the range remains valid after you've fed in all the
-    /// characters, then every value within in that range is an occurrence.
+    /// This is backward searching. As you feed in the characters along with a position, `nearest` will
+    /// give you a new position in the index. Once the range becomes invalid (which happens when the
+    /// substring doesn't exist), we can bail out. On the contrary, if the range remains valid after
+    /// you've fed in all the characters, then every value within in that range is an occurrence.
     ///
     /// So, this is useful when you want to cache the repeating ranges. With this, you can build your own
     /// count/search functions with caching. It's also useful for making custom approximate matching functions
