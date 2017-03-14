@@ -86,8 +86,23 @@ pub fn insert<T>(vec: &mut Vec<u32>, value: T) -> u32
     vec[idx]
 }
 
-// Generates a suffix array using the "induced sorting" method
-// (Thanks to the python implementation in http://zork.net/~st/jottings/sais.html)
+/// Generates a suffix array using the "induced sorting" method.
+///
+/// Building the suffix array is expensive, since the output is a vector of positions.
+/// For the human genome (~3 GB), it consumed ~27 GB of memory. That said, the induced
+/// sorting method is very fast! It took only ~20 mins to generate the suffix array.
+///
+/// ``` rust
+/// let text = b"Hello, world!";
+/// let sa = helix::suffix_array(text as &[u8]);
+///
+/// let mut rotations = (0..text.len()).map(|i| &text[i..]).collect::<Vec<_>>();
+/// rotations.sort();   // sort the prefixes
+///
+/// // skip the first value (which is an empty prefix)
+/// assert_eq!(sa.into_iter().skip(1).map(|i| &text[i as usize..]).collect::<Vec<_>>(),
+///            rotations);
+/// ```
 pub fn suffix_array<T>(input: &[T]) -> Vec<u32>
     where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
 {
@@ -255,9 +270,9 @@ mod tests {
     #[test]
     fn test_suffix_array() {
         let text = b"ATCGAATCGAGAGATCATCGAATCGAGATCATCGAAATCATCGAATCGTC";
-        let sa = suffix_array(&text.iter().map(|i| *i).collect::<Vec<_>>());
+        let sa = suffix_array(text as &[u8]);
 
-        let mut rotations = (0..text.len()).map(|i| &text[i as usize..]).collect::<Vec<_>>();
+        let mut rotations = (0..text.len()).map(|i| &text[i..]).collect::<Vec<_>>();
         rotations.sort();
 
         assert_eq!(sa.into_iter().skip(1).map(|i| &text[i as usize..]).collect::<Vec<_>>(),

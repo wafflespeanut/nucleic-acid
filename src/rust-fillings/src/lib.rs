@@ -79,7 +79,6 @@ impl_predefined_type!(i32);
 impl_predefined_type!(i64);
 impl_predefined_type!(isize);
 
-#[derive(Clone, Hash, RustcEncodable, RustcDecodable)]
 /// A vector to hold values that have a known bit range.
 ///
 /// For example, DNA nucleotides don't need 8 bits to represent them. We know they
@@ -123,6 +122,7 @@ impl_predefined_type!(isize);
 /// The human genome has ~3 billion bases (that's 3 GB). Using 8 bits for each of them would be
 /// a waste of space. This representation reduces the memory consumed by a factor of 6.
 ///
+#[derive(Clone, Hash, RustcEncodable, RustcDecodable)]
 pub struct BitsVec<T: ReprUsize> {
     inner: Vec<usize>,
     units: usize,
@@ -261,22 +261,26 @@ impl<T: ReprUsize> BitsVec<T> {
 
     /// Returns the length of the vector. This only indicates the number of units it contains,
     /// and not the length of the inner vector.
+    #[inline]
     pub fn len(&self) -> usize {
         self.units
     }
 
     /// Returns `true` if the vector contains no values (or `false` otherwise).
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.units == 0
     }
 
     /// Reserve space for "N" additional elements.
+    #[inline]
     pub fn reserve(&mut self, additional: usize) {
         self.inner.reserve(additional * self.bits / self.max_bits + 1);
     }
 
     /// Shrink the inner vector's capacity to fit to its length. It does nothing more than
     /// calling the same method in the inner vector.
+    #[inline]
     pub fn shrink_to_fit(&mut self) {
         self.inner.shrink_to_fit();
     }
@@ -305,23 +309,27 @@ impl<T: ReprUsize> BitsVec<T> {
     }
 
     /// Clears the inner vector. Note that this is similar to calling `truncate` with zero.
+    #[inline]
     pub fn clear(&mut self) {
         self.truncate(0);
     }
 
     /// Returns the length of the inner vector. Useful for measuring the memory consumption
     /// of the elements.
+    #[inline]
     pub fn inner_len(&self) -> usize {
         self.inner.len()
     }
 
     /// Creates an iterator over the elements. Note that unlike other iterators, this gives the elements
     /// themselves, and not their references.
+    #[inline]
     pub fn iter(&self) -> Iter<T> {
         Iter { vec: self, range: 0..self.units }
     }
 
     /// Creates an iterator consuming the vector.
+    #[inline]
     pub fn into_iter(self) -> IntoIter<T> {
         IntoIter { range: 0..self.units, vec: self }
     }
@@ -329,6 +337,7 @@ impl<T: ReprUsize> BitsVec<T> {
 
 impl<T: ReprUsize + Clone> BitsVec<T> {
     /// Creates a vector initialized with "N" copies of the given element.
+    #[inline]
     pub fn with_elements(bits: usize, length: usize, value: T) -> BitsVec<T> {
         let mut vec = BitsVec::new(bits);
         vec.extend_with_element(length, value);
@@ -381,6 +390,7 @@ impl<T: ReprUsize + Clone> BitsVec<T> {
 
 impl<T: ReprUsize + PartialEq> BitsVec<T> {
     /// Checks whether the vector contains the given element in O(n) time.
+    #[inline]
     pub fn contains(&self, element: &T) -> bool {
         self.iter().find(|ref i| i == &element).is_some()
     }
