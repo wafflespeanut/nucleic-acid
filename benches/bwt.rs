@@ -1,12 +1,12 @@
 #![feature(test)]
 
-extern crate helix;
+extern crate nucleic_acid;
 #[macro_use]
 extern crate lazy_static;
 extern crate test;
 extern crate rand;
 
-use helix::{suffix_array, FMIndex};
+use nucleic_acid::{suffix_array, FMIndex};
 use rand::Rng;
 use test::Bencher;
 

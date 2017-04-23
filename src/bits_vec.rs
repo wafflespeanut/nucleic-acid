@@ -11,7 +11,7 @@ use std::usize;
 /// This is implemented for integer types, `bool` and `char` by default.
 ///
 /// ``` rust
-/// use helix::ReprUsize;
+/// use nucleic_acid::ReprUsize;
 ///
 /// enum Foo {
 ///     One,
@@ -83,7 +83,7 @@ impl_predefined_type!(isize);
 /// only have four possible values, so 2 bits would be enough.
 ///
 /// ``` rust
-/// use helix::{BitsVec, ReprUsize};
+/// use nucleic_acid::{BitsVec, ReprUsize};
 /// use std::mem;
 ///
 /// #[derive(Clone, Copy, Debug)]

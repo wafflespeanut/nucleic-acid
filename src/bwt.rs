@@ -7,7 +7,7 @@ use std::ops::Index;
 ///
 /// ``` rust
 /// let text = String::from("The quick brown fox jumps over the lazy dog");
-/// let bw = helix::bwt(text.as_bytes());
+/// let bw = nucleic_acid::bwt(text.as_bytes());
 /// assert_eq!(String::from("gkynxeser\u{0}l i hhv otTu c uwd rfm ebp qjoooza"),
 ///            String::from_utf8(bw).unwrap());
 /// ```
@@ -35,8 +35,8 @@ fn generate_occurrence_index(map: &mut Vec<u32>) {
 ///
 /// ``` rust
 /// let text = String::from("Hello, world!");
-/// let bw = helix::bwt(text.as_bytes());
-/// let ibw = helix::ibwt(&bw);
+/// let bw = nucleic_acid::bwt(text.as_bytes());
+/// let ibw = nucleic_acid::ibwt(&bw);
 /// assert_eq!(text, String::from_utf8(ibw).unwrap());
 /// ```
 pub fn ibwt(input: &[u8]) -> Vec<u8> {
@@ -74,7 +74,7 @@ pub fn ibwt(input: &[u8]) -> Vec<u8> {
 /// in O(1) time.
 ///
 /// ``` rust
-/// use helix::FMIndex;
+/// use nucleic_acid::FMIndex;
 ///
 /// let text = String::from("GCGTGCCCAGGGCACTGCCGCTGCAGGCGTAGGCATCGCATCACACGCGT");
 /// let index = FMIndex::new(text.as_bytes());
@@ -92,7 +92,7 @@ pub fn ibwt(input: &[u8]) -> Vec<u8> {
 /// ~27 GB of RAM to build the index (in ~4 mins).
 ///
 /// That said, it still returns the match results in a few microseconds.
-#[derive(Clone, Debug, RustcEncodable, RustcDecodable)]
+#[derive(Clone, Debug)]
 pub struct FMIndex {
     /// BW-transformed data
     data: Vec<u8>,
@@ -177,7 +177,7 @@ impl FMIndex {
     /// For example, we can do soemthing like this,
     ///
     /// ``` rust
-    /// use helix::FMIndex;
+    /// use nucleic_acid::FMIndex;
     /// let fm = FMIndex::new(b"Hello, Hello, Hello" as &[u8]);
     ///
     /// // initially, the range should be the length of the BWT

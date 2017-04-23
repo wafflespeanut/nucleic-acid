@@ -1,4 +1,4 @@
-## rust-helix
+## nucleic-acid
 
 This Rust library has some of the bioinformatics stuff I'd written for playing with DNA sequences. It has the following implementations:
 
@@ -11,10 +11,10 @@ This Rust library has some of the bioinformatics stuff I'd written for playing w
 Add this to your `Cargo.toml`
 
 ``` toml
-version = "0.1"
+nucleic-acid = "0.1"
 ```
 
-See the [documentation](https://wafflespeanut.github.io/rust-helix/) for exact usage and detailed examples.
+See the [documentation](https://docs.rs/nucleic-acid) for exact usage and detailed examples.
 
 ### Motivation
 

@@ -1,8 +1,8 @@
 #![feature(test)]
 extern crate test;
-extern crate helix;
+extern crate nucleic_acid;
 
-use helix::BitsVec;
+use nucleic_acid::BitsVec;
 use test::Bencher;
 
 #[bench]

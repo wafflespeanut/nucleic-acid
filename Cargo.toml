@@ -1,10 +1,10 @@
 [package]
-name = "helix"
+name = "nucleic-acid"
 version = "0.1.0"
 authors = ["Ravi Shankar <wafflespeanut@gmail.com>"]
 description = "Implementations of Suffix Array, Burrows-Wheeler Transform and FM-index"
-repository = "https://github.com/Wafflespeanut/rust-helix"
-documentation = "https://wafflespeanut.github.io/rust-helix/"
+repository = "https://github.com/Wafflespeanut/nucleic-acid"
+documentation = "https://wafflespeanut.github.io/nucleic-acid/"
 readme = "README.md"
 license = "MIT"
 categories = ["algorithms", "data-structures", "science"]
@@ -16,5 +16,5 @@ rustc-serialize = "0.3"
 bit-vec = "0.4"
 
 [dev-dependencies]
-lazy_static = "0.1"
+lazy_static = "0.2"
 rand = "0.3"

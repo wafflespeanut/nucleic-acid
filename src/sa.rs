@@ -1,6 +1,5 @@
 use bit_vec::BitVec;
 use num_traits::{Num, NumCast, cast};
-use rustc_serialize::{Encodable, Decodable};
 
 // Prefer this for marking, instead of Option<u32> (as it requires additional byte of memory)
 // We could use usize here, but it will consume a great deal of memory. Keeping that aside, even
@@ -94,7 +93,7 @@ pub fn insert<T>(vec: &mut Vec<u32>, value: T) -> u32
 ///
 /// ``` rust
 /// let text = b"Hello, world!";
-/// let sa = helix::suffix_array(text as &[u8]);
+/// let sa = nucleic_acid::suffix_array(text as &[u8]);
 ///
 /// let mut rotations = (0..text.len()).map(|i| &text[i..]).collect::<Vec<_>>();
 /// rotations.sort();   // sort the prefixes
@@ -104,7 +103,7 @@ pub fn insert<T>(vec: &mut Vec<u32>, value: T) -> u32
 ///            rotations);
 /// ```
 pub fn suffix_array<T>(input: &[T]) -> Vec<u32>
-    where T: Num + NumCast + PartialOrd + Copy + Encodable + Decodable
+    where T: Num + NumCast + PartialOrd + Copy
 {
     let length = input.len();
     let length_32 = length as u32;
