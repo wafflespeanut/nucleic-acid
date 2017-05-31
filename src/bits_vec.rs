@@ -118,7 +118,7 @@ impl_predefined_type!(isize);
 /// The human genome has ~3 billion bases (that's 3 GB). Using 8 bits for each of them would be
 /// a waste of space. This representation reduces the memory consumed by a factor of 6.
 ///
-#[derive(Clone, Hash, RustcEncodable, RustcDecodable)]
+#[derive(Clone, Hash)]
 pub struct BitsVec<T: ReprUsize> {
     inner: Vec<usize>,
     units: usize,

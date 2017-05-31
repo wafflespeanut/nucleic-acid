@@ -1,6 +1,6 @@
 [package]
 name = "nucleic-acid"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Ravi Shankar <wafflespeanut@gmail.com>"]
 description = "Implementations of Suffix Array, Burrows-Wheeler Transform and FM-index"
 repository = "https://github.com/Wafflespeanut/nucleic-acid"
@@ -12,7 +12,6 @@ keywords = ["index", "bwt", "vector", "search"]
 
 [dependencies]
 num-traits = "0.1"
-rustc-serialize = "0.3"
 bit-vec = "0.4"
 
 [dev-dependencies]

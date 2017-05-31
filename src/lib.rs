@@ -2,7 +2,6 @@
        html_favicon_url = "https://www.rust-lang.org/favicon.ico", html_root_url = ".")]
 extern crate bit_vec;
 extern crate num_traits;
-extern crate rustc_serialize;
 
 mod bits_vec;
 mod bwt;
