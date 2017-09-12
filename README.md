@@ -1,5 +1,8 @@
 ## nucleic-acid
 
+[![Build Status](https://travis-ci.org/wafflespeanut/nucleic-acid.svg?branch=master)](https://travis-ci.org/wafflespeanut/nucleic-acid)
+[![Current Version](https://meritbadge.herokuapp.com/nucleic-acid)](https://crates.io/crates/nucleic-acid)
+
 This Rust library has some of the bioinformatics stuff I'd written for playing with DNA sequences. It has the following implementations:
 
  - **BWT** - for generating the Burrows-Wheeler Transform (for the given text) using a suffix array (constructed by the induced sorting method with O(n) space in O(n) time).
